@@ -1,1 +1,4 @@
 *.docx
+*.pptx
+*.cache
+*.log
