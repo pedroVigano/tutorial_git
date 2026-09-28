@@ -4,7 +4,9 @@ Guia passo a passo para colocar o Dashboard Tático P&D no projeto GCP da BSV. R
 - **Quem acessa:** qualquer conta `@bsvrobotics.com.br` entra e **lê**.
 - **Quem grava:** só os e-mails listados no secret `editor-emails` **gravam** no Notion.
 
-> **Conferir antes de rodar.** Os comandos do IAP direto no Cloud Run (flag `--iap`, `gcloud iap web … --resource-type=cloud-run`) vieram da documentação do Google por busca: a página oficial estava bloqueada no ambiente onde este guia foi escrito. O recurso é GA desde mar/2026. Se algum comando for recusado, veja a seção [Se algo der errado](#se-algo-der-errado).
+> **Testado no projeto `bsv-robotics-management` em 28/09/2026.** O deploy em `southamerica-east1` com `--iap` funcionou. Os ajustes que precisaram ser feitos na primeira vez estão incorporados abaixo. Se algum comando for recusado, veja [Se algo der errado](#se-algo-der-errado).
+>
+> **Rode um comando por vez**, principalmente os que pedem entrada, como `read -s`. Se você colar um bloco inteiro, a linha seguinte pode ser lida como se fosse o que o comando pediu.
 
 ## 0. Pré-requisitos
 
@@ -22,14 +24,16 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNum
 
 ## 1. Integração do Notion (só do dashboard)
 
-1. Em <https://www.notion.so/profile/integrations>, crie uma **integração interna** chamada "Dashboard Tático P&D".
-   Use uma integração exclusiva do dashboard: o limite de ~3 req/s do Notion é por token.
-2. Capacidades:
+1. No Notion, vá em **Developer tools → Connections → New connection**, dê o nome "Dashboard Tático P&D" e escolha **API token**. Não use OAuth: o dashboard usa um token só, do servidor, e o login das pessoas é feito pelo Google (IAP).
+   Use uma conexão exclusiva do dashboard: o limite de ~3 req/s do Notion é por token.
+2. **Configuration:** capacidades
    - **Conteúdo:** ler, atualizar e inserir.
    - **Usuários:** ler informações *sem* e-mail (para mostrar o nome dos responsáveis).
-3. Em cada uma das 9 bases abaixo, abra o menu `•••` → **Conexões** → adicione a integração:
+3. **Content access → Edit access:** dê acesso às 9 bases abaixo.
    🏁 Metas da Sprint · 🎯 OKRs Táticos · 📈 Evolução de KPIs · 🤖 Projetos, Sistemas e Subsistemas · 🏃 Sprints · ✅ Lista de Tarefas · 🔼 Diretorias e Áreas Funcionais · 📜 Desejos e Expectativas · 📋 Requisitos
-4. Copie o token (`secret_…` ou `ntn_…`) e teste localmente:
+   - Dar acesso à página **BSV Robotics** também funciona, porque o acesso vale para tudo que está dentro dela. Em compensação, o token passa a poder editar qualquer página da BSV.
+   - Páginas com acesso restrito, ou que ficam fora de BSV Robotics, precisam ser adicionadas uma a uma.
+4. Copie o token (`ntn_…`, 50 caracteres). Guarde-o só no `.env` local e no Secret Manager, nunca em chat ou e-mail. Depois, teste localmente:
    ```bash
    cp .env.example .env   # preencha NOTION_TOKEN
    npm ci
@@ -42,9 +46,24 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNum
 ```bash
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
   secretmanager.googleapis.com iap.googleapis.com
+```
 
-# token do Notion e lista de quem grava (e-mails separados por vírgula)
-printf '%s' 'COLE_O_TOKEN_DO_NOTION' | gcloud secrets create notion-token --data-file=-
+A ativação leva alguns minutos para valer. Antes de criar os secrets, espere este comando listar a API:
+
+```bash
+gcloud services list --enabled --filter="name:secretmanager.googleapis.com"
+```
+
+Se o gcloud perguntar "not enabled… (y/N)?", responda `N`, espere mais um pouco e repita.
+
+```bash
+# token do Notion: digite (ou cole) quando pedir; não aparece na tela nem fica no histórico
+read -s -p "Token do Notion: " TOKEN; echo
+printf '%s' "$TOKEN" | gcloud secrets create notion-token --data-file=-
+unset TOKEN
+gcloud secrets versions access latest --secret=notion-token | wc -c    # deve dar ~50, não 0
+
+# lista de quem grava (e-mails reais, separados por vírgula)
 printf '%s' 'lider1@bsvrobotics.com.br,lider2@bsvrobotics.com.br' | gcloud secrets create editor-emails --data-file=-
 
 # conta de serviço do app (só lê os dois secrets)
@@ -53,11 +72,16 @@ SA=tatico-pd-run@$PROJECT_ID.iam.gserviceaccount.com
 for s in notion-token editor-emails; do
   gcloud secrets add-iam-policy-binding $s --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
 done
+
+# conta que executa o build (padrão do Compute): sem este papel, o build falha sem deixar log
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member=serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com \
+  --role=roles/run.builder
 ```
 
 ## 3. Deploy
 
-Na raiz do repositório (o Cloud Build usa o `Dockerfile`):
+Na raiz do repositório, no branch com o código (o Cloud Build usa o `Dockerfile`). Na primeira vez, o gcloud pergunta se pode criar o repositório `cloud-run-source-deploy` no Artifact Registry; responda **Y**.
 
 ```bash
 gcloud run deploy $SERVICE --source . --region $REGION \
@@ -72,20 +96,23 @@ Por que essas flags:
 - `--max-instances 1`: o cache do snapshot e a fila de gravações ficam numa instância só (são ~10 líderes).
 - `--min-instances 1`: evita a espera da primeira abertura. Para economizar, use `0`; o primeiro acesso depois de um tempo parado leva alguns segundos.
 - `--timeout 900`: o rollover grava ~100–200 itens a ~3 req/s e mostra o progresso na tela.
-- `--iap`: liga o login Google na frente do serviço.
+- `--iap`: liga o login Google na frente do serviço. O próprio deploy já cria o agente do IAP e dá a ele permissão para chamar o serviço ("Setting IAP service agent ✓").
 
 ## 4. Permissões do IAP
 
 ```bash
-# identidade do IAP no projeto e permissão para ele chamar o Cloud Run
+# quem pode abrir o dashboard: todo o domínio
+gcloud iap web add-iam-policy-binding --resource-type=cloud-run --service=$SERVICE --region=$REGION \
+  --member=domain:bsvrobotics.com.br --role=roles/iap.httpsResourceAccessor --condition=None
+```
+
+Se o deploy não tiver mostrado "Setting IAP service agent ✓", crie o agente e dê a permissão manualmente. Repetir não causa problema:
+
+```bash
 gcloud beta services identity create --service=iap.googleapis.com --project=$PROJECT_ID
 gcloud run services add-iam-policy-binding $SERVICE --region $REGION \
   --member=serviceAccount:service-$PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com \
   --role=roles/run.invoker
-
-# quem pode abrir o dashboard: todo o domínio
-gcloud iap web add-iam-policy-binding --resource-type=cloud-run --service=$SERVICE --region=$REGION \
-  --member=domain:bsvrobotics.com.br --role=roles/iap.httpsResourceAccessor --condition=None
 ```
 
 Para restringir o acesso a um grupo, troque `domain:bsvrobotics.com.br` por `group:lideres-pd@bsvrobotics.com.br`.
@@ -116,6 +143,9 @@ Primeira gravação real: crie uma meta de teste pelo `+` de uma lane, confira n
 
 ## Se algo der errado
 
+- **"Build failed" com log vazio** (`gcloud builds log <ID>` não mostra nada): a conta de build está sem o papel `roles/run.builder`. Rode o último comando do passo 2 e repita o deploy. Para ver qual conta executou o build: `gcloud builds describe <ID> --region=$REGION --format='value(serviceAccount)'`.
+- **"Secret Manager API has not been used… or it is disabled"** logo depois de ativar a API: é só a ativação ainda propagando. Espere alguns minutos e repita.
+- **Página do Google dizendo que você não tem acesso:** a liberação do passo 4 leva alguns minutos para valer.
 - **`--iap` não reconhecido:** atualize o gcloud ou use `gcloud beta run deploy … --iap`. Se a região não aceitar IAP direto, a alternativa documentada pelo Google é colocar o serviço atrás de um HTTPS Load Balancer com IAP. Nesse caso o app continua igual; só a audiência do JWT muda (ver abaixo).
 - **Todo acesso dá 401 "JWT do IAP inválido":** procure nos logs `iap.audiencia_divergente`. Ele mostra a audiência que o IAP está mandando. Defina `--update-env-vars IAP_AUDIENCE=<valor recebido>` e publique.
 - **Banner vermelho "Somente leitura":** o schema do Notion não bate com `server/notion/schema.js`. O banner e o `/api/health` dizem qual base e qual campo. Os casos mais comuns são uma base não conectada à integração (passo 1.3) ou um campo apagado.
