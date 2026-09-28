@@ -1,7 +1,7 @@
 // Utilitários de teste: Notion falso com os dados do mock e API sem limitador.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { createFakeNotion } from '../server/notion/fake.js';
+import { createFakeNotion, makePage } from '../server/notion/fake.js';
 import { createApi } from '../server/notion/client.js';
 import { noLimiter } from '../server/notion/limiter.js';
 import { demoState, readMockData, MOCK_PATH } from '../server/notion/demo.js';
@@ -18,6 +18,36 @@ export function fakeWithDemo() {
 
 export async function snapshotOf(api, opts = {}) {
   return buildSnapshot(await loadRaw(api, opts), { sprintN: opts.sprint });
+}
+
+// Árvore com Entregáveis-Chave (tipo fora do modelo) pendurados em subsistema, sistema, outro EC e sem pai.
+export function ecState() {
+  const sprint = makePage({ base: 'sprints', props: { titulo: 'Sprint P&D #5', numero: 5, data: { start: '2026-09-14', end: '2026-09-25' }, status: 'Em andamento' } });
+  const sprintAnt = makePage({ base: 'sprints', props: { titulo: 'Sprint P&D #4', numero: 4, data: { start: '2026-08-31', end: '2026-09-11' }, status: 'Concluído' } });
+  const pd = makePage({ base: 'areas', props: { titulo: 'P&D', diretoria: 'P&D', nivel: 'Diretoria' } });
+  const sw = makePage({ base: 'areas', props: { titulo: 'Software', diretoria: 'P&D', nivel: 'Equipe', pai: [pd.id] } });
+  const proj = makePage({ base: 'projetos', props: { titulo: 'Scout', tipo: 'Projeto', status: 'Em andamento', area: [pd.id] } });
+  const sis = makePage({ base: 'projetos', props: { titulo: 'Insumos', tipo: 'Sistema', status: 'Em andamento', pai: [proj.id] } });
+  const sub = makePage({ base: 'projetos', props: { titulo: 'Reabastecimento', tipo: 'Subsistema', status: 'Em andamento', pai: [sis.id] } });
+  const ec = (titulo, pai) => makePage({ base: 'projetos', props: { titulo, tipo: 'Entregável-Chave', status: 'Em andamento', pai } });
+  const ecSub = ec('EC do subsistema', [sub.id]);
+  const ecNeto = ec('EC dentro de EC', [ecSub.id]);
+  const ecSis = ec('EC do sistema', [sis.id]);
+  const ecSolto = ec('EC sem pai', []);
+  const obj = makePage({ base: 'okrs', props: { titulo: 'Entregar o Scout', grau: 'Objetivo', trimestre: ['2026 - 3'], area: [sw.id], projetos: [proj.id] } });
+  const kr = makePage({ base: 'okrs', props: { titulo: 'KR do Scout', grau: 'Resultado-Chave', pai: [obj.id] } });
+  const meta = (titulo, subsistema) => makePage({ base: 'metas', props: { titulo, status: 'Em andamento', sprint: [sprint.id], area: [sw.id], okr: [obj.id], subsistema } });
+  const mEc = meta('Validar o reabastecimento', [ecSub.id]);
+  const mNeto = meta('Testar o bocal', [ecNeto.id]);
+  const mAmbos = meta('Documentar o reabastecimento', [sub.id, ecSub.id]);
+  const mSis = meta('Integrar os insumos', [ecSis.id]);
+  const mSolto = meta('Fechar o EC antigo', [ecSolto.id]);
+  const desejo = makePage({ base: 'desejos', props: { titulo: 'Abastecer sozinho', status: 'Em análise', projetos: [ecSub.id] } });
+  const all = { sprint, sprintAnt, pd, sw, proj, sis, sub, ecSub, ecNeto, ecSis, ecSolto, obj, kr, mEc, mNeto, mAmbos, mSis, mSolto, desejo };
+  return {
+    state: { pages: Object.fromEntries(Object.values(all).map((p) => [p.id, p])) },
+    ids: Object.fromEntries(Object.entries(all).map(([k, p]) => [k, p.id])),
+  };
 }
 
 // Funções originais do mock v2.2 (índices, regras de status e alertas), executadas numa VM com o D do mock —

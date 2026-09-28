@@ -51,5 +51,5 @@ function askNextSprint(m) {
     },
   });
   b.querySelector('#f-cancel').onclick = closeModal;
-  setTimeout(() => b.querySelector('#f-motivo').focus(), 50);
+  setTimeout(() => b.querySelector('#f-motivo')?.focus(), 50);
 }

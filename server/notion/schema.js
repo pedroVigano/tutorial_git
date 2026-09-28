@@ -136,6 +136,10 @@ export const BASES = {
 // Diretoria cujos objetivos, projetos e equipes o dashboard mostra.
 export const DIRETORIA = 'P&D';
 
+// Tipos da árvore que saíram do modelo (contexto §3) mas ainda existem no Notion até a documentação migrar:
+// não viram lane; metas e desejos ligados a eles aparecem no item pai (a relação no Notion não muda).
+export const TIPOS_OCULTOS = ['Entregável-Chave'];
+
 // Seções das páginas usadas pela skill gestao-sprint-notion (mesmos títulos).
 export const SECOES = {
   criterio: 'Critério de conclusão',

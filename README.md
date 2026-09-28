@@ -105,6 +105,11 @@ Os pontos da Fase 4 ainda abertos (ver `docs/contexto_reestruturacao_sprint.md` 
 - **Campo renomeado:** o schema check casa pelo ID da propriedade e segue funcionando, com aviso.
   - Para fixar os IDs: `npm run schema:check -- --ids`, depois copie os IDs para `schema.js`.
 - **Campo apagado ou com tipo diferente:** o dashboard entra em **somente leitura** e mostra qual campo, até alguém corrigir o Notion ou `schema.js`.
+- **Entregável-Chave** (tipo que saiu do modelo; `TIPOS_OCULTOS` em `schema.js`): não vira lane.
+  - Metas e desejos ligados a um Entregável-Chave aparecem no item pai, com a tag "via entregável-chave" e um alerta "reapontar". A relação no Notion não muda.
+  - Reaponte as metas antes de arquivar o Entregável-Chave; senão elas ficam sem subsistema.
+  - Arrastar o card para outra lane tira o Entregável-Chave da relação, numa linha explícita do plano.
+  - Um Entregável-Chave sem item pai continua aparecendo em "Fora dos projetos", porque não há onde exibir as metas dele.
 
 **A DEFINIR** (não inventado no código):
 - Retrospectiva por projeto: quem preenche.

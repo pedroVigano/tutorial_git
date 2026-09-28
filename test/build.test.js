@@ -2,11 +2,12 @@
 // difíceis da API (relação > 25 itens, "Fazendo", convidado sem nome, bloqueadora fora da sprint) são tratados.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeWithDemo, snapshotOf, readMockData } from './helpers.js';
+import { fakeWithDemo, snapshotOf, readMockData, ecState } from './helpers.js';
 import { createFakeNotion, makePage } from '../server/notion/fake.js';
 import { createApi } from '../server/notion/client.js';
 import { noLimiter } from '../server/notion/limiter.js';
 import { buildIndex } from '../web/js/store.js';
+import { computeAlerts } from '../web/js/rules.js';
 
 test('snapshot do Notion reproduz o D do mock (objetivos, KRs, KPIs, metas, projetos)', async () => {
   const M = readMockData();
@@ -99,4 +100,34 @@ test('"Fazendo" conta como Em Andamento; KR no campo OKR vira o objetivo; bloque
   assert.equal(D.tree.find((n) => n.nome === 'Robô X').resp, 'Convidada Ana');
   assert.equal(D.areas.sw.nome, 'Software');
   assert.equal(D.areas.sw.ext, false);
+});
+
+// ---------- Entregável-Chave (saiu do modelo) ----------
+test('Entregável-Chave não vira lane: sai da árvore e as metas aparecem no item pai', async () => {
+  const { state, ids } = ecState();
+  const api = createApi(createFakeNotion(state).client, { limiter: noLimiter });
+  const D = await snapshotOf(api);
+  const I = buildIndex(D);
+  const meta = (id) => D.metas.find((m) => m.id === id);
+
+  for (const ec of [ids.ecSub, ids.ecNeto, ids.ecSis]) assert.ok(!I.byId[ec], 'Entregável-Chave com pai não entra na árvore');
+  assert.ok(I.isLane(I.byId[ids.sub]), 'o subsistema volta a ser folha (lane)');
+  assert.deepEqual(D.ocultos.map((o) => o.id).sort(), [ids.ecSub, ids.ecNeto, ids.ecSis].sort());
+  assert.equal(D.ocultos.find((o) => o.id === ids.ecNeto).pai, ids.sub, 'EC dentro de EC sobe até o primeiro item visível');
+
+  assert.deepEqual(meta(ids.mEc).subs, [ids.sub]);
+  assert.deepEqual(meta(ids.mEc).via_ec, { [ids.sub]: [{ id: ids.ecSub, nome: 'EC do subsistema' }] });
+  assert.deepEqual(meta(ids.mNeto).subs, [ids.sub]);
+  assert.deepEqual(meta(ids.mAmbos).subs, [ids.sub], 'subsistema e EC dele contam uma vez só');
+  assert.deepEqual(meta(ids.mSis).subs, [ids.sis], 'EC de sistema → lane "metas ligadas ao sistema"');
+  assert.ok(!('via_ec' in meta(ids.mSolto)));
+  assert.deepEqual(D.desejos.find((d) => d.id === ids.desejo).subs, [ids.sub]);
+
+  // sem pai não há onde exibir: continua visível em "outros", como antes
+  assert.equal(I.byId[ids.ecSolto]?.pai, 'outros');
+  assert.ok(!D.tree.some((n) => n.pai === 'outros' && n.id !== ids.ecSolto), 'só o EC sem pai vai para "outros"');
+
+  const A = computeAlerts(D, I, { sprint: 5 });
+  assert.ok(A.some((a) => a.t.includes('Validar o reabastecimento') && a.t.includes('Entregável-Chave "EC do subsistema"') && a.t.includes('Subsistema "Reabastecimento"')));
+  assert.ok(!A.some((a) => a.t.includes('Integrar os insumos') && a.t.includes('não a um subsistema')), 'o alerta de EC substitui o de "não é subsistema"');
 });

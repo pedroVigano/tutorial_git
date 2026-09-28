@@ -2,10 +2,13 @@
 // relações são acumulativas, remoções aparecem explícitas, conflitos param, nada duplica ao refazer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fakeWithDemo, snapshotOf } from './helpers.js';
+import { fakeWithDemo, snapshotOf, ecState } from './helpers.js';
 import { buildPlan } from '../server/writes/plans.js';
 import { createExecutor } from '../server/writes/executor.js';
 import { read, blockText } from '../server/notion/props.js';
+import { createFakeNotion } from '../server/notion/fake.js';
+import { createApi } from '../server/notion/client.js';
+import { noLimiter } from '../server/notion/limiter.js';
 
 const EMAIL = 'lider@bsvrobotics.com.br';
 
@@ -56,6 +59,36 @@ test('mover de subsistema: remoção aparece como linha própria e é gravada', 
   assert.equal(plan.linhas.filter((l) => l.remocao).length, 1);
   assert.ok(fim.ok);
   assert.deepEqual(read(fake.page(m.id), 'metas', 'subsistema'), [destino.id]);
+});
+
+test('Entregável-Chave: mover da lane do pai tira o EC; editar sem mexer na lane mantém o vínculo', async () => {
+  const { state, ids } = ecState();
+  const fake = createFakeNotion(state);
+  const api = createApi(fake.client, { limiter: noLimiter });
+  const D = await snapshotOf(api);
+  const ex = createExecutor({ api, audit: () => {} });
+  const run = async (acao, dados) => {
+    const plan = await buildPlan(acao, { api, D, dados, email: EMAIL });
+    return { plan, fim: plan.bloqueios.length ? null : await ex.exec(ex.store(plan, EMAIL), EMAIL) };
+  };
+
+  // editar o título com a lane exibida (subsistema pai) não troca o EC pelo pai
+  const ed = await run('meta.editar', { meta: ids.mEc, titulo: 'Validar o reabastecimento em campo', subs: [ids.sub] });
+  assert.ok(!ed.plan.linhas.some((l) => l.campo.startsWith('Subsistema')), 'nenhuma linha de Subsistema');
+  assert.deepEqual(read(fake.page(ids.mEc), 'metas', 'subsistema'), [ids.ecSub]);
+
+  // arrastar da lane "Reabastecimento" para "Insumos": sai o EC (linha explícita, com o nome dele), entra o destino
+  const mv = await run('meta.mover', { meta: ids.mEc, de: ids.sub, para: ids.sis });
+  const rem = mv.plan.linhas.filter((l) => l.remocao);
+  assert.equal(rem.length, 1);
+  assert.match(rem[0].atual, /EC do subsistema \(Entregável-Chave\)/);
+  assert.ok(mv.fim.ok);
+  assert.deepEqual(read(fake.page(ids.mEc), 'metas', 'subsistema'), [ids.sis]);
+
+  // meta ligada ao subsistema e ao EC dele: mover tira os dois, cada um na sua linha
+  const mv2 = await run('meta.mover', { meta: ids.mAmbos, de: ids.sub, para: ids.sis });
+  assert.equal(mv2.plan.linhas.filter((l) => l.remocao).length, 2);
+  assert.deepEqual(read(fake.page(ids.mAmbos), 'metas', 'subsistema'), [ids.sis]);
 });
 
 test('abortar com conflito: se o status mudou no Notion depois do plano, nada é gravado', async () => {

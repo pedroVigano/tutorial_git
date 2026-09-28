@@ -57,5 +57,5 @@ export function openMetaForm({ sub = '', wish = null, edit = null } = {}) {
     },
   });
   b.querySelector('#f-cancel').onclick = closeModal;
-  setTimeout(() => b.querySelector('#f-t').focus(), 50);
+  setTimeout(() => b.querySelector('#f-t')?.focus(), 50);
 }

@@ -1,9 +1,12 @@
 // Páginas cruas do Notion → objeto `D` no mesmo formato do mock v2.2 (função pura, testada com fixtures).
 import { read, titleOf, iconOf, normId, withDashes } from '../notion/props.js';
-import { DIRETORIA } from '../notion/schema.js';
+import { DIRETORIA, TIPOS_OCULTOS } from '../notion/schema.js';
 import { areaDisplay, normName } from '../display.js';
 
 const ID = (x) => withDashes(normId(x));
+const normTipo = (t) => normName(t).replace(/[\s-]+/g, ' ');
+const OCULTOS = new Set(TIPOS_OCULTOS.map(normTipo));
+const tipoOculto = (t) => OCULTOS.has(normTipo(t));
 const rel = (page, base, key) => (page.__rel?.[key] || read(page, base, key)).map(ID);
 const first = (arr) => (arr && arr.length ? arr[0] : null);
 
@@ -84,8 +87,33 @@ export function buildSnapshot(raw, { sprintN } = {}) {
       areas: keysOf(rel(p, 'projetos', 'area')), url: p.url,
     });
   }
+  // Tipos fora do modelo (Entregável-Chave): saem da árvore, os filhos sobem para o ancestral visível mais
+  // próximo, e metas/desejos ligados a eles aparecem nesse ancestral. Sem ancestral, o item fica como está.
+  const ocultoPara = new Map();
+  for (const n of nodes.values()) {
+    if (!tipoOculto(n.tipo)) continue;
+    let a = n.pai; const seen = new Set([n.id]);
+    while (a && nodes.has(a) && tipoOculto(nodes.get(a).tipo) && !seen.has(a)) { seen.add(a); a = nodes.get(a).pai; }
+    if (a && nodes.has(a) && !tipoOculto(nodes.get(a).tipo)) ocultoPara.set(n.id, a);
+  }
+  const ocultos = [...ocultoPara].map(([id, pai]) => ({ id, nome: nodes.get(id).nome, tipo: nodes.get(id).tipo, pai, url: nodes.get(id).url }));
+  const ocultoNome = new Map(ocultos.map((o) => [o.id, o.nome]));
+  for (const id of ocultoPara.keys()) nodes.delete(id);
+  for (const n of nodes.values()) if (ocultoPara.has(n.pai)) n.pai = ocultoPara.get(n.pai);
+  const exib = (id) => ocultoPara.get(id) || id;
+  // relação com a árvore → ids exibidos (sem repetição) + via_ec {idExibido: [Entregáveis-Chave de origem]}
+  const relArvore = (ids) => {
+    const subs = []; const via = {};
+    for (const id of ids) {
+      const e = exib(id);
+      if (!subs.includes(e)) subs.push(e);
+      if (e !== id) (via[e] ||= []).push({ id, nome: ocultoNome.get(id) });
+    }
+    return { subs, via_ec: Object.keys(via).length ? via : null };
+  };
+
   const rootOf = (id) => {
-    let n = nodes.get(id); const seen = new Set();
+    let n = nodes.get(exib(id)); const seen = new Set();
     while (n && n.pai && nodes.has(n.pai) && !seen.has(n.id)) { seen.add(n.id); n = nodes.get(n.pai); }
     return n ? n.id : id;
   };
@@ -186,10 +214,11 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     const ts = (tarefasPorMeta.get(ID(p.id)) || []).filter((t) => t.status !== 'Abortada');
     const cont = ts.length ? Object.fromEntries(STATUS_TAREFA.map((s) => [s, ts.filter((t) => t.status === s).length])) : null;
     const ak = keysOf(areaIds);
+    const { subs, via_ec } = relArvore(rel(p, 'metas', 'subsistema'));
     return {
       id: ID(p.id), url: p.url, titulo: titleOf(p), status: read(p, 'metas', 'status') || 'Não iniciada',
       area: ak[0] || 'pd', areas: ak, sprints: sp, n_sprints: sp.length,
-      subs: rel(p, 'metas', 'subsistema'), subs_unknown: [],
+      subs, subs_unknown: [], ...(via_ec ? { via_ec } : {}),
       okrs, okrs_extra: okrsExtra, bloq: rel(p, 'metas', 'bloqueadoPor'), tarefas: cont,
     };
   };
@@ -204,7 +233,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     return {
       id: ID(p.id), url: p.url, titulo: titleOf(p), status: read(p, 'desejos', 'status'),
       stakeholder: read(p, 'desejos', 'stakeholder').join(' / ') || '—', evidencia: read(p, 'desejos', 'evidencia') || '—',
-      subs: rel(p, 'desejos', 'projetos'),
+      subs: relArvore(rel(p, 'desejos', 'projetos')).subs,
       sprints_em_analise: Math.max(1, sprints.filter((s) => s.fim && s.fim >= criado && s.ini <= hoje).length),
     };
   });
@@ -265,5 +294,6 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     areas,
     projetos: Object.fromEntries(visibleRoots.map((r) => [r, nodes.get(r)?.url || null])),
     objetivos, krs, kpis, tree, metas, tarefas, desejos,
+    ...(ocultos.length ? { ocultos } : {}),
   };
 }

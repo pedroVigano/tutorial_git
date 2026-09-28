@@ -30,8 +30,16 @@ export function namer(D) {
   const kr = new Map(D.krs.map((k) => [k.id, k]));
   const meta = new Map(D.metas.map((m) => [m.id, m]));
   const sprintById = new Map(D.sprints.map((s) => [s.id, s]));
+  // itens fora do modelo (Entregável-Chave), exibidos no ancestral `pai`
+  const oculto = new Map((D.ocultos || []).map((o) => [o.id, o]));
+  const sub = (id) => {
+    if (byId.has(id)) return pathOf(id).join(' › ');
+    const o = oculto.get(id);
+    return o ? [...(byId.has(o.pai) ? pathOf(o.pai) : []), `${o.nome} (${o.tipo})`].join(' › ') : `(item ${id.slice(0, 8)})`;
+  };
   return {
-    sub: (id) => (byId.has(id) ? pathOf(id).join(' › ') : `(item ${id.slice(0, 8)})`),
+    sub,
+    exib: (id) => oculto.get(id)?.pai || id,
     area: (id) => areaById.get(id)?.nome || `(área ${id.slice(0, 8)})`,
     okr: (id) => (obj.has(id) ? `${obj.get(id).label} · ${obj.get(id).curto}` : kr.has(id) ? `${kr.get(id).label} · KR` : `(OKR ${id.slice(0, 8)})`),
     meta: (id) => meta.get(id)?.titulo || `(meta ${id.slice(0, 8)})`,
@@ -183,9 +191,12 @@ export const ACOES = {
       if (!novo && !meta.okr.some((id) => !N.objetivo(id))) avisos.push('Regra do modelo: toda meta liga a ≥ 1 objetivo (campo OKR).');
     }
     if (dados.subs) {
+      // o formulário trabalha com os itens exibidos: um Entregável-Chave conta como o item pai, então
+      // manter a lane do pai mantém o vínculo atual e tirá-la remove também o Entregável-Chave
       const novos = dados.subs.map(ID);
-      const add = novos.filter((id) => !meta.subs.includes(id));
-      const rem = meta.subs.filter((id) => !novos.includes(id));
+      const exibidos = meta.subs.map(N.exib);
+      const add = novos.filter((id) => !exibidos.includes(id));
+      const rem = meta.subs.filter((id) => !novos.includes(N.exib(id)));
       if (add.length) {
         ops.push({ op: 'relAdd', base: 'metas', pageId: m.id, key: 'subsistema', ids: add });
         linhas.push({ base: BASES.metas.titulo, pagina: P, campo: `${B.subsistema.name} (adicionar)`, atual: lista(meta.subs, N.sub), novo: add.map((id) => `+ ${N.sub(id)}`).join(' · ') });
@@ -217,9 +228,11 @@ export const ACOES = {
       ops.push({ op: 'relAdd', base: 'metas', pageId: meta.page.id, key: 'subsistema', ids: [para] });
       linhas.push({ base: BASES.metas.titulo, pagina: P, campo: `${campo} (adicionar)`, atual: lista(meta.subs, N.sub), novo: `+ ${N.sub(para)}` });
     }
-    if (de && de !== para && meta.subs.includes(de)) {
-      ops.push({ op: 'relRemove', base: 'metas', pageId: meta.page.id, key: 'subsistema', ids: [de] });
-      linhas.push({ base: BASES.metas.titulo, pagina: P, campo: `${campo} (remover)`, atual: N.sub(de), novo: `− ${N.sub(de)}`, remocao: true });
+    // `de` é a lane de origem; se a meta aparece nela por um Entregável-Chave, é ele que sai da relação
+    const sair = de && de !== para ? meta.subs.filter((id) => id !== para && N.exib(id) === de) : [];
+    for (const id of sair) {
+      ops.push({ op: 'relRemove', base: 'metas', pageId: meta.page.id, key: 'subsistema', ids: [id] });
+      linhas.push({ base: BASES.metas.titulo, pagina: P, campo: `${campo} (remover)`, atual: N.sub(id), novo: `− ${N.sub(id)}`, remocao: true });
     }
     return { titulo: `Mover "${meta.titulo}" para ${N.sub(para).split(' › ').pop()}`, linhas, ops, avisos: [], bloqueios: ops.length ? [] : ['A meta já está nesse subsistema.'] };
   },

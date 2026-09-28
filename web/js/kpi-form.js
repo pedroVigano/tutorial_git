@@ -21,5 +21,5 @@ export function openKpiForm(k, { sprint } = {}) {
     },
   });
   b.querySelector('#k-cancel').onclick = closeModal;
-  setTimeout(() => b.querySelector('#k-v').focus(), 50);
+  setTimeout(() => b.querySelector('#k-v')?.focus(), 50);
 }
