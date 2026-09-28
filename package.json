@@ -1,0 +1,29 @@
+{
+  "name": "gestao-tatica-pd",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard de Planejamento Tático P&D da BSV Robótica — lê e grava no Notion, roda no Cloud Run com IAP",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "NOTION_MODE=fixture AUTH_MODE=dev node --watch server/index.js",
+    "dev:live": "AUTH_MODE=dev node --env-file=.env --watch server/index.js",
+    "test": "node --test",
+    "schema:check": "node --env-file-if-exists=.env scripts/schema-check.js",
+    "fixture:demo": "node scripts/make-demo-fixture.js",
+    "screenshots": "node scripts/screenshots.mjs",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.5",
+    "@notionhq/client": "^5.26.0",
+    "fastify": "^5.12.5",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}

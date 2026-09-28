@@ -2,3 +2,6 @@
 *.pptx
 *.cache
 *.log
+node_modules/
+.env
+screenshots/
