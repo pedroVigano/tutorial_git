@@ -43,6 +43,11 @@ Navegador ──IAP (login Google)──► Cloud Run · Node 22 / Fastify ─�
 | Reunião & IA | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
 
 Outros recursos:
+- **Trimestral** (aba ou `?pagina=trimestral`): reunião trimestral de P&D, **só leitura**.
+  - Revisão do trimestre: Objetivo › KR › KPI com série por sprint, status pela regra × status no Notion.
+  - Ao lado, o que já está no trimestre planejado.
+  - Marca o que duplicar (marcar um KPI marca o KR e o objetivo), status final, ajustes e OKRs novos. A seleção fica no navegador.
+  - Gera o "Pedido ao Claude — reunião trimestral" (copiar ou baixar .md): o Claude mostra o plano de escrita e só grava após conferência. A página não grava no Notion.
 - **Modo TV** (`?modo=tv`): tela grande, só leitura.
 - **Tema:** claro, escuro ou automático.
 - **Filtro por equipe:** "Só P&D" esconde as metas de outras diretorias.
@@ -105,6 +110,7 @@ Os pontos da Fase 4 ainda abertos (ver `docs/contexto_reestruturacao_sprint.md` 
 - **Campo renomeado:** o schema check casa pelo ID da propriedade e segue funcionando, com aviso.
   - Para fixar os IDs: `npm run schema:check -- --ids`, depois copie os IDs para `schema.js`.
 - **Campo apagado ou com tipo diferente:** o dashboard entra em **somente leitura** e mostra qual campo, até alguém corrigir o Notion ou `schema.js`.
+- **KPI duplicado para outro trimestre:** a medição em 📈 Evolução de KPIs pode ligar o KPI original e a cópia. O valor entra na série dos dois.
 - **Entregável-Chave** (tipo que saiu do modelo; `TIPOS_OCULTOS` em `schema.js`): não vira lane.
   - Metas e desejos ligados a um Entregável-Chave aparecem no item pai, com a tag "via entregável-chave" e um alerta "reapontar". A relação no Notion não muda.
   - Reaponte as metas antes de arquivar o Entregável-Chave; senão elas ficam sem subsistema.

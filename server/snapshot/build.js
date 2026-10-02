@@ -33,6 +33,9 @@ const curto = (titulo, max = 28) => {
   return `${cut.slice(0, cut.lastIndexOf(' ') > 12 ? cut.lastIndexOf(' ') : max).replace(/[,;:]$/, '')}…`;
 };
 
+// Status do Notion e trimestres (multi-select) de um item de OKR.
+const okrMeta = (p) => ({ status: read(p, 'okrs', 'status') || null, trimestres: read(p, 'okrs', 'trimestre') });
+
 export function buildSnapshot(raw, { sprintN } = {}) {
   const users = raw.users || {};
 
@@ -135,7 +138,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     const abortados = roots.filter((r) => nodes.get(r)?.status === 'Abortado');
     return {
       id: ID(p.id), label: `O${i + 1}`, icone: iconOf(p) || '◎', curto: curto(titulo), titulo, url: p.url,
-      projetos: vivos, areas: keysOf(rel(p, 'okrs', 'area')),
+      projetos: vivos, areas: keysOf(rel(p, 'okrs', 'area')), ...okrMeta(p),
       limite: read(p, 'okrs', 'limite')?.start?.slice(0, 10) || null,
       alerta: abortados.length ? `Também aponta para projeto abortado: ${abortados.map((r) => `"${nodes.get(r).nome}"`).join(', ')} — reapontar` : null,
     };
@@ -153,7 +156,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     const list = (krByObj.get(o.id) || []).sort((a, b) => a.created_time.localeCompare(b.created_time));
     list.forEach((p, j) => krs.push({
       id: ID(p.id), label: `K${o.label.slice(1)}${String.fromCharCode(97 + j)}`, obj: o.id, titulo: titleOf(p),
-      limite: read(p, 'okrs', 'limite')?.start?.slice(0, 10) || null, url: p.url,
+      limite: read(p, 'okrs', 'limite')?.start?.slice(0, 10) || null, url: p.url, ...okrMeta(p),
     }));
   }
   const krIds = new Set(krs.map((k) => k.id));
@@ -162,14 +165,16 @@ export function buildSnapshot(raw, { sprintN } = {}) {
 
   const medByKpi = new Map();
   for (const m of [...raw.medicoes].sort((a, b) => a.created_time.localeCompare(b.created_time))) {
-    const kpi = first(rel(m, 'medicoes', 'kpi'));
     const n = sprintNOf(first(rel(m, 'medicoes', 'sprint')));
     const v = read(m, 'medicoes', 'valor');
-    if (!kpi || n == null) continue;
-    const e = medByKpi.get(kpi) || { serie: {}, medicoes: {} };
-    if (v != null) e.serie[String(n)] = v;
-    e.medicoes[String(n)] = ID(m.id);
-    medByKpi.set(kpi, e);
+    if (n == null) continue;
+    // KPI duplicado para outro trimestre fica na mesma medição: vale para todos os KPIs da relação
+    for (const kpi of rel(m, 'medicoes', 'kpi')) {
+      const e = medByKpi.get(kpi) || { serie: {}, medicoes: {} };
+      if (v != null) e.serie[String(n)] = v;
+      e.medicoes[String(n)] = ID(m.id);
+      medByKpi.set(kpi, e);
+    }
   }
   const kpis = raw.kpis
     .map((p) => ({ p, kr: rel(p, 'okrs', 'pai').find((id) => krIds.has(id)) }))
@@ -181,7 +186,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
         id: ID(p.id), label: `${krById.get(kr).label}.${i + 1}`, kr, titulo: titleOf(p), url: p.url,
         alvo: read(p, 'okrs', 'alvo'), unidade: read(p, 'okrs', 'unidade'), dir: read(p, 'okrs', 'direcao'),
         limite: read(p, 'okrs', 'limite')?.start?.slice(0, 10) || null,
-        serie: med.serie, medicoes: med.medicoes,
+        serie: med.serie, medicoes: med.medicoes, ...okrMeta(p),
       };
     });
   const kpiById = new Map(kpis.map((k) => [k.id, k]));

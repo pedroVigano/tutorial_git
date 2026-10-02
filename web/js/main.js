@@ -4,11 +4,12 @@ import * as api from './api.js';
 import { S, setData } from './store.js';
 import { state, persist } from './state.js';
 import { hooks } from './hooks.js';
-import { esc, toast, download, dm, $, $$ } from './util.js';
+import { esc, toast, download, dm, quarterShift, $, $$ } from './util.js';
 import { renderBoard, applyAreaColors, initDivider } from './board.js';
 import { drawArrows } from './arrows.js';
 import { renderRollover } from './rollover.js';
 import { renderReuniao } from './reuniao.js';
+import { renderTrimestral } from './trimestral.js';
 import { closeModal } from './modal.js';
 import { closeDrawer } from './drawer.js';
 
@@ -31,17 +32,11 @@ function updateUrl() {
   if (state.tv) q.set('modo', 'tv');
   if (state.sprint != null) q.set('sprint', state.sprint);
   if (state.tri) q.set('tri', state.tri);
+  if (state.page !== 'board') q.set('pagina', state.page);
   history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}`);
 }
 
 // ---------- header ----------
-function quarterShift(tri, d) {
-  const m = /^(\d{4}) - (\d)$/.exec(tri); if (!m) return tri;
-  let y = Number(m[1]); let q = Number(m[2]) + d;
-  while (q > 4) { q -= 4; y += 1; } while (q < 1) { q += 4; y -= 1; }
-  return `${y} - ${q}`;
-}
-
 function renderHeader() {
   const { D, meta } = S;
   const selS = $('#sel-sprint');
@@ -49,7 +44,7 @@ function renderHeader() {
   selS.value = D.sprint;
   selS.onchange = () => hooks.setSprint(Number(selS.value));
   const selT = $('#sel-tri'); const t = D.trimestre.id;
-  selT.innerHTML = [quarterShift(t, 1), t, quarterShift(t, -1)].map((x) => `<option value="${x}">${x.replace(' - ', '-')}${x === t && !state.tri ? ' · da sprint' : ''}${x === t && D.trimestre.fim ? ` · até ${dm(D.trimestre.fim)}` : ''}</option>`).join('');
+  selT.innerHTML = [quarterShift(t, 1), t, quarterShift(t, -1)].map((x) => `<option value="${esc(x)}">${esc(x.replace(' - ', '-'))}${x === t && !state.tri ? ' · da sprint' : ''}${x === t && D.trimestre.fim ? ` · até ${dm(D.trimestre.fim)}` : ''}</option>`).join('');
   selT.value = t;
   selT.onchange = () => { state.tri = selT.value; updateUrl(); load(); };
   const hora = new Date(D.lido_em_iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -57,7 +52,8 @@ function renderHeader() {
   $('#badge-data').title = `Dados do Notion de ${D.lido_em}. Clique para recarregar agora.`;
   $('#user-chip').innerHTML = `${esc(meta.email)} · <b>${meta.pode_gravar && !state.tv ? 'edição' : 'leitura'}</b>${meta.auth === 'dev' ? ' · <span title="AUTH_MODE=dev: usuário local, sem login Google">dev</span>' : ''}${meta.modo === 'fixture' ? ' · <span title="NOTION_MODE=fixture: dados de demonstração (foto do mock de 14/09), gravações em memória">demo</span>' : ''}`;
   const tv = $('#tv-btn');
-  tv.href = state.tv ? `?${state.sprint != null ? `sprint=${state.sprint}` : ''}` : `?modo=tv${state.sprint != null ? `&sprint=${state.sprint}` : ''}`;
+  const pg = state.page !== 'board' ? `&pagina=${state.page}` : '';
+  tv.href = state.tv ? `?${state.sprint != null ? `sprint=${state.sprint}` : ''}${pg}` : `?modo=tv${state.sprint != null ? `&sprint=${state.sprint}` : ''}${pg}`;
   tv.title = state.tv ? 'Sair do modo TV' : 'Modo TV: tela grande, só leitura, atualiza sozinho';
   const ban = $('#banner');
   const erros = (meta.avisos_schema || []).filter((a) => a.nivel === 'ERRO');
@@ -68,10 +64,14 @@ function renderHeader() {
 }
 
 // ---------- páginas ----------
+const PAGES = ['board', 'trimestral', 'rollover', 'reuniao'];
 function showPage(p) {
+  if (!PAGES.includes(p)) p = 'board';
   state.page = p;
   $$('.nav button').forEach((x) => { if (x.dataset.page === p) x.setAttribute('aria-current', 'page'); else x.removeAttribute('aria-current'); });
-  ['board', 'rollover', 'reuniao'].forEach((k) => { $(`#page-${k}`).hidden = k !== p; });
+  PAGES.forEach((k) => { $(`#page-${k}`).hidden = k !== p; });
+  document.body.dataset.page = p;
+  updateUrl();
   render();
 }
 $$('.nav button').forEach((b) => { b.onclick = () => showPage(b.dataset.page); });
@@ -83,6 +83,7 @@ function render() {
   if (state.page === 'board') renderBoard();
   if (state.page === 'rollover') renderRollover();
   if (state.page === 'reuniao') renderReuniao();
+  if (state.page === 'trimestral') renderTrimestral();
 }
 
 // ---------- carga ----------
@@ -150,4 +151,5 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && S.
 if (state.tv) document.body.classList.add('tv');
 applyTheme();
 initDivider();
+if (state.page !== 'board') showPage(state.page);
 load();

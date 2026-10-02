@@ -6,7 +6,7 @@ const params = new URLSearchParams(location.search);
 const saved = store.get('gt-state', {});
 
 export const state = {
-  page: 'board',
+  page: params.get('pagina') || 'board',
   tv: params.get('modo') === 'tv',
   sprint: params.get('sprint') ? Number(params.get('sprint')) : null, // null = sprint em andamento
   tri: params.get('tri') || null,

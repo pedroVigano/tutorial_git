@@ -126,6 +126,23 @@ try {
   assert.equal(await p2.locator('[data-add], .hd, [data-kpi]').count(), 0, 'leitor não vê botões de edição');
   assert.match(await p2.innerText('#user-chip'), /leitura/);
   ok('leitor: sem botões de edição');
+
+  // Trimestral: só leitura — marca um KPI para duplicar e o pedido traz o id; nenhuma chamada de gravação.
+  const gravacoes = [];
+  p2.on('request', (r) => { if (/\/api\/(plan|exec)/.test(r.url())) gravacoes.push(r.url()); });
+  await p2.click('[data-page="trimestral"]');
+  await p2.waitForSelector('.tq-obj', { timeout: 15000 });
+  assert.equal(await p2.locator('.tq-obj').count(), 5, 'os 5 objetivos de 2026-3 do demo');
+  const kpiId = await p2.locator('input[data-dup][data-nivel="kpi"]:not([disabled])').first().getAttribute('data-dup');
+  await p2.locator(`input[data-dup="${kpiId}"]`).check();
+  const krMarcado = await p2.locator('input[data-dup][data-nivel="kr"]:checked').count();
+  assert.ok(krMarcado >= 1, 'marcar o KPI marca o KR dele');
+  const pedido = await p2.locator('#tq-pedido').textContent();
+  assert.ok(pedido.includes(kpiId), 'o pedido traz o id do KPI marcado');
+  assert.match(pedido, /objetivo NOVO \(cópia\)/);
+  assert.match(new URL(p2.url()).search, /pagina=trimestral/);
+  assert.equal(gravacoes.length, 0, 'a página Trimestral não grava no Notion');
+  ok('trimestral: revisão de 2026-3, marcar para duplicar gera pedido, sem gravação');
   await p2.close();
   await leitor.app.close();
 

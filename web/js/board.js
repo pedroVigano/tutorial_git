@@ -69,8 +69,8 @@ function renderObjbar() {
 }
 
 // ---------- coluna OKR ----------
-function spark(k) {
-  const xs = S.I.sprintNums;
+// xs: sprints do eixo (padrão: as do trimestre carregado no board)
+export function spark(k, xs = S.I.sprintNums) {
   const W = 300; const H = 84; const pl = 14; const pr = 10; const pt = 18; const pb = 20;
   const x = (i) => (xs.length > 1 ? pl + (i * (W - pl - pr)) / (xs.length - 1) : W / 2);
   const vals = xs.map((s) => k.serie[String(s)]);
@@ -101,7 +101,7 @@ function spark(k) {
   return `${s}</svg>`;
 }
 
-function scoreHTML(k) {
+export function scoreHTML(k) {
   const st = kpiStatus(k); const l = kpiLast(k); const col = stColor(st.cls);
   const cur = l ? `${fmt(l.v)}<small>${esc(k.unidade || '')}</small>` : '—<small>sem medição</small>';
   const alvo = k.alvo == null ? '<b style="color:var(--warn);font-size:13px">⚠ definir alvo</b>' : `<b>${esc(k.dir)} ${fmt(k.alvo)}</b> ${esc(k.unidade || '')}<small>alvo${k.limite ? ` até ${dm(k.limite)}` : ''}</small>`;

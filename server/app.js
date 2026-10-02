@@ -13,6 +13,8 @@ import { buildPlan } from './writes/plans.js';
 import { createExecutor } from './writes/executor.js';
 import { createAuth } from './auth/iap.js';
 
+const TRI_RE = /^\d{4} - [1-4]$/;
+
 const WEB_ROOT = fileURLToPath(new URL('../web/', import.meta.url));
 
 export async function buildApp({ config, client, jwks, audience, logger = true } = {}) {
@@ -85,6 +87,7 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
 
   app.get('/api/snapshot', async (req, reply) => {
     const { sprint, tri, force } = req.query;
+    if (tri && !TRI_RE.test(tri)) return reply.code(400).send({ erro: `Trimestre inválido: use o formato "2026 - 3"` });
     const v = await snapshots.get({ sprint: sprint ? Number(sprint) : null, tri: tri || null, force: force === '1' });
     const meta = {
       email: req.user.email, pode_gravar: req.user.podeGravar && !somenteLeitura(), somente_leitura: somenteLeitura(),
@@ -102,6 +105,7 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
   app.post('/api/plan', async (req) => {
     exigeEditor(req);
     const { acao, dados = {}, sprint = null, tri = null } = req.body || {};
+    if (tri && !TRI_RE.test(tri)) return reply.code(400).send({ erro: 'Trimestre inválido' });
     const v = await snapshots.get({ sprint: sprint ? Number(sprint) : null, tri, force: acao === 'rollover' });
     const plan = await buildPlan(acao, { api, D: v.data, dados, email: req.user.email });
     const planId = plan.bloqueios.length ? null : executor.store(plan, req.user.email);

@@ -2,6 +2,13 @@
 export const fmt = (v) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toLocaleString('pt-BR') : String(v).replace('.', ','));
 export const dm = (d) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : '');
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// '2026 - 3' ± d trimestres
+export function quarterShift(tri, d) {
+  const m = /^(\d{4}) - (\d)$/.exec(tri || ''); if (!m) return tri;
+  let y = Number(m[1]); let q = Number(m[2]) + d;
+  while (q > 4) { q -= 4; y += 1; } while (q < 1) { q += 4; y -= 1; }
+  return `${y} - ${q}`;
+}
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 

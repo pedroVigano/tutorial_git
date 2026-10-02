@@ -1,0 +1,16 @@
+# Arquivos que NÃO sobem no `gcloud run deploy --source .`
+.git
+.gitignore
+.gcloudignore
+.env
+.env.*
+!.env.example
+node_modules/
+test/
+scripts/
+screenshots/
+docs/*.md
+*.log
+*.docx
+*.pptx
+*.cache

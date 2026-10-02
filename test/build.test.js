@@ -131,3 +131,36 @@ test('Entregável-Chave não vira lane: sai da árvore e as metas aparecem no it
   assert.ok(A.some((a) => a.t.includes('Validar o reabastecimento') && a.t.includes('Entregável-Chave "EC do subsistema"') && a.t.includes('Subsistema "Reabastecimento"')));
   assert.ok(!A.some((a) => a.t.includes('Integrar os insumos') && a.t.includes('não a um subsistema')), 'o alerta de EC substitui o de "não é subsistema"');
 });
+
+// ---------- OKR duplicado para o trimestre seguinte (reunião trimestral) ----------
+test('medição ligada a dois KPIs (original e cópia do trimestre seguinte) entra na série dos dois; status e trimestres expostos', async () => {
+  const sprint = makePage({ base: 'sprints', props: { titulo: 'Sprint P&D #9', numero: 9, data: { start: '2026-09-28', end: '2026-10-09' }, status: 'Em andamento' } });
+  const sprintAnt = makePage({ base: 'sprints', props: { titulo: 'Sprint P&D #8', numero: 8, data: { start: '2026-09-14', end: '2026-09-25' }, status: 'Concluído' } });
+  const pd = makePage({ base: 'areas', props: { titulo: 'P&D', diretoria: 'P&D', nivel: 'Diretoria' } });
+  const okr = (titulo, grau, tri, extra = {}) => makePage({ base: 'okrs', props: { titulo, grau, trimestre: [tri], area: [pd.id], ...extra } });
+  const obj3 = okr('Validar o robô', 'Objetivo', '2026 - 3', { status: 'Não atingido' });
+  const kr3 = okr('KR do robô', 'Resultado-Chave', '2026 - 3', { pai: [obj3.id] });
+  const kpi3 = okr('Autonomia', 'KPI', '2026 - 3', { pai: [kr3.id], alvo: 8, unidade: 'horas', direcao: '≥', status: 'Atingido Parcialmente' });
+  const obj4 = okr('Validar o robô', 'Objetivo', '2026 - 4', { status: 'Não iniciado' });
+  const kr4 = okr('KR do robô', 'Resultado-Chave', '2026 - 4', { pai: [obj4.id] });
+  const kpi4 = okr('Autonomia', 'KPI', '2026 - 4', { pai: [kr4.id], alvo: 10, unidade: 'horas', direcao: '≥' });
+  const legado = okr('Objetivo legado nos dois trimestres', 'Objetivo', '2026 - 3');
+  legado.properties.Trimestre.multi_select.push({ name: '2026 - 4' });
+  const med = makePage({ base: 'medicoes', props: { titulo: 'Autonomia — Sprint #8', kpi: [kpi3.id, kpi4.id], sprint: [sprintAnt.id], valor: 6.5 } });
+  const pages = Object.fromEntries([sprint, sprintAnt, pd, obj3, kr3, kpi3, obj4, kr4, kpi4, legado, med].map((p) => [p.id, p]));
+  const api = createApi(createFakeNotion({ pages }).client, { limiter: noLimiter });
+
+  const D3 = await snapshotOf(api, { tri: '2026 - 3' });
+  const D4 = await snapshotOf(api, { tri: '2026 - 4' });
+  const k3 = D3.kpis.find((k) => k.id === kpi3.id);
+  const k4 = D4.kpis.find((k) => k.id === kpi4.id);
+  assert.deepEqual(k3.serie, { 8: 6.5 });
+  assert.deepEqual(k4.serie, { 8: 6.5 }, 'a cópia herda a série pela mesma medição');
+  assert.equal(k4.medicoes['8'], med.id);
+  assert.equal(k3.status, 'Atingido Parcialmente');
+  assert.equal(k4.status, null);
+  assert.equal(D3.objetivos.find((o) => o.id === obj3.id).status, 'Não atingido');
+  assert.deepEqual(D3.krs[0].trimestres, ['2026 - 3']);
+  assert.deepEqual(D3.objetivos.find((o) => o.id === legado.id).trimestres, ['2026 - 3', '2026 - 4']);
+  assert.ok(D4.objetivos.some((o) => o.id === legado.id), 'item legado com os dois trimestres aparece nos dois');
+});
