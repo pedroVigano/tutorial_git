@@ -267,12 +267,14 @@ function chart(row, M) {
 // ---------- desenho ----------
 const pills = (M, x) => `<span class="pill ${M.regra[x.id].cls}" title="Status pela regra">${esc(M.regra[x.id].txt)}</span><span class="pill" title="Status no Notion">Notion: ${esc(x.status || '—')}</span>`;
 const GRAU_TXT = { Objetivo: 'Objetivo', 'Resultado-Chave': 'Resultado-Chave', KPI: 'KPI' };
+const GRAU_CLS = { Objetivo: 'g-o', 'Resultado-Chave': 'g-k', KPI: 'g-i' };
+const lbl = (txt, grau) => (txt ? `<span class="tq-lbl ${GRAU_CLS[grau]}">${esc(txt)}</span>` : '');
 
 function q3Cell(M, x, grau) {
   if (!x) return '<div class="tq-cell vazio"></div>';
   const regra = finalPelaRegra(M.regra[x.id]);
   const fim = state.tv ? '' : `<label class="tq-c">Status final <select data-fim="${x.id}"><option value="">não mudar${regra ? ` (regra: ${esc(regra)})` : ''}</option>${STATUS_FINAL.map((s) => `<option ${draft.fim[x.id] === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`;
-  return `<div class="tq-cell q3"><div class="tq-h"><span class="eyebrow">${esc(x.label)} · ${GRAU_TXT[grau]}</span><a href="${esc(x.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a></div><div class="t">${grau === 'Objetivo' ? `${esc(x.icone)} ` : ''}${esc(x.titulo)}</div><div class="tq-pills">${pills(M, x)}</div>${grau === 'KPI' ? scoreHTML(x) : ''}${fim ? `<div class="tq-ctl">${fim}</div>` : ''}</div>`;
+  return `<div class="tq-cell q3"><div class="tq-h"><span class="eyebrow">${lbl(x.label, grau)} ${GRAU_TXT[grau]}</span><a href="${esc(x.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a></div><div class="t">${grau === 'Objetivo' ? `${esc(x.icone)} ` : ''}${esc(x.titulo)}</div><div class="tq-pills">${pills(M, x)}</div>${grau === 'KPI' ? scoreHTML(x) : ''}${fim ? `<div class="tq-ctl">${fim}</div>` : ''}</div>`;
 }
 
 function q4Cell(row, grau) {
@@ -284,7 +286,8 @@ function q4Cell(row, grau) {
     return `<div class="tq-cell vazio q4">${msg ? `<span class="hint">${msg}</span>` : ''}${dup}${restaurar}</div>`;
   }
   const tag = n.kind === 'copy' ? '<span class="pill st-run">cópia · a criar</span>' : n.kind === 'novo' ? '<span class="pill st-run">novo · a criar</span>' : `<span class="pill">no Notion</span>${edited(n) ? '<span class="pill st-warn">editado</span>' : ''}`;
-  const head = `<div class="tq-h"><span class="eyebrow">${n.label ? `${esc(n.label)} · ` : ''}${GRAU_TXT[grau]}</span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a>` : ''}</div>`;
+  const origemTxt = n.kind === 'copy' ? ` <span class="tq-de">cópia de ${esc(n.src.label)}</span>` : '';
+  const head = `<div class="tq-h"><span class="eyebrow">${lbl(n.label || (n.kind === 'copy' ? n.src.label : n.kind === 'novo' ? 'novo' : ''), grau)} ${GRAU_TXT[grau]}${origemTxt}</span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a>` : ''}</div>`;
   if (ro) return `<div class="tq-cell q4">${head}<div class="t">${esc(n.v.titulo)}</div><div class="tq-pills">${tag}${grau === 'KPI' && n.v.alvo != null ? `<span class="pill">alvo ${esc(n.v.direcao || '')} ${fmt(Number(n.v.alvo))} ${esc(n.v.unidade || '')}</span>` : ''}</div></div>`;
   const s = esc(n.slot);
   const kpiCtl = grau === 'KPI' ? `<div class="tq-kctl"><label class="tq-c">Alvo <input type="number" step="any" data-campo="alvo" data-slot="${s}" value="${n.v.alvo ?? ''}"></label><label class="tq-c">Direção <select data-campo="direcao" data-slot="${s}"><option value=""></option>${DIRS.map((d) => `<option ${n.v.direcao === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label><label class="tq-c">Unidade <select data-campo="unidade" data-slot="${s}"><option value=""></option>${[...new Set([...UNIDADES, n.v.unidade].filter(Boolean))].map((u) => `<option ${n.v.unidade === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label></div>` : '';
@@ -297,7 +300,7 @@ const kpiRow = (M, r) => `<div class="tq-row kpi"><div class="tq-pair">${q3Cell(
 const krRow = (M, r) => `<div class="tq-row kr"><div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k) => kpiRow(M, k)).join('')}</div>`;
 function grupo(M, g) {
   const titulo = g.q3 ? `${g.q3.label} · ${g.q3.titulo}` : `${triLabel(pg.plan)} · ${g.q4?.v.titulo || 'objetivo novo'}`;
-  return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${esc(titulo.slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r) => krRow(M, r)).join('')}</details>`;
+  return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${lbl(g.q3?.label || g.q4?.label || 'novo', 'Objetivo')} ${esc((g.q3 ? g.q3.titulo : titulo).slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r) => krRow(M, r)).join('')}</details>`;
 }
 
 function seletores() {
@@ -331,6 +334,7 @@ function paint() {
   const y = window.scrollY;
   el.innerHTML = `${head}${barra(M)}<div class="tq-cols"><div>${esc(triLabel(pg.rev))} · revisão</div><div>${esc(triLabel(pg.plan))} · planejamento</div></div>${M.grupos.map((g) => grupo(M, g)).join('') || '<div class="empty">Nenhum objetivo de P&amp;D nos dois trimestres.</div>'}`;
   window.scrollTo(0, y);
+  const bar = el.querySelector('.tq-bar'); if (bar) el.style.setProperty('--tq-bar', `${bar.offsetHeight}px`);
   bindHead(el); bind(el, M);
 }
 
