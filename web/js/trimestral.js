@@ -1,15 +1,19 @@
-// Página Trimestral (só leitura): revisão dos OKRs de P&D de um trimestre e rascunho do seguinte.
-// Nada é gravado no Notion: as decisões viram um pedido para o Claude executar após conferência humana.
+// Página Trimestral: trimestre revisado (esquerda) × planejado (direita), linha a linha.
+// Duplicar copia o objetivo com KRs e KPIs para a direita; lá se edita o texto, arrasta-se o alvo no gráfico,
+// aborta-se ou acrescentam-se itens. Tudo fica num rascunho neste navegador até "Gravar no Notion", que mostra
+// um único plano de escrita (cópias com Origem, medições religadas, edições, abortos e status final).
 import * as api from './api.js';
 import { S, buildIndex } from './store.js';
 import { state } from './state.js';
-import { esc, fmt, dm, copy, download, store, quarterShift, $, $$ } from './util.js';
-import { kpiLast, kpiStatus, krStatus, objStatus, coverage } from './rules.js';
-import { spark, scoreHTML } from './board.js';
+import { esc, fmt, store, quarterShift, toast, $, $$ } from './util.js';
+import { kpiStatus, krStatus, objStatus, stColor } from './rules.js';
+import { scoreHTML } from './board.js';
+import { requestWrite } from './plan-modal.js';
 
 export const STATUS_FINAL = ['Atingido', 'Atingido Parcialmente', 'Não atingido', 'Abortado'];
+const UNIDADES = ['adimensional', '%', 'kg', 'm', 'cm', 'm²', 'm/s', 'ha', 'horas', 'min', 'ms', 'Hz', 'A', 'A (48 V)', 'A·h', 'kWh', 'rad/s', 'º', '± °', 'R$', '% (nominal 220 V)'];
+const DIRS = ['≥', '≤', '='];
 
-// Status pela regra → status final do Notion (só quando não há ambiguidade).
 export function finalPelaRegra(st) {
   if (st.txt === 'Atingido') return 'Atingido';
   if (st.txt === 'Parcial') return 'Atingido Parcialmente';
@@ -17,15 +21,18 @@ export function finalPelaRegra(st) {
   return null;
 }
 
-const pg = { rev: null, plan: null, data: {}, loading: null, err: null, pending: false, closed: new Set(), pedidoAberto: false, sideTop: 0 };
+const pg = { rev: null, plan: null, data: {}, loading: null, err: null, pending: false, closed: new Set() };
 const triLabel = (t) => (t || '').replace(' - ', '-');
 
-// ---------- seleção (fica neste navegador) ----------
-const selKey = () => `gt-trimestral:${pg.rev}>${pg.plan}`;
-const emptySel = () => ({ dup: {}, dest: {}, fim: {}, nota: {}, novos: '' });
-let sel = emptySel();
-const loadSel = () => { sel = { ...emptySel(), ...store.get(selKey(), {}) }; };
-const saveSel = () => store.set(selKey(), sel);
+// ---------- rascunho (fica neste navegador) ----------
+// dup: itens do revisado marcados para copiar · abort/edit: por slot do lado planejado · novos: itens novos
+// (key, grau, pai = slot) · fim: status final do revisado
+const draftKey = () => `gt-tri2:${pg.rev}>${pg.plan}`;
+const emptyDraft = () => ({ dup: {}, abort: {}, edit: {}, novos: [], fim: {} });
+let draft = emptyDraft();
+const loadDraft = () => { draft = { ...emptyDraft(), ...store.get(draftKey(), {}) }; };
+const saveDraft = () => store.set(draftKey(), draft);
+const novoKey = () => `n:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // ---------- dados ----------
 async function fetchTri(tri, force) {
@@ -55,126 +62,242 @@ function ensure(force = false) {
 
 export function renderTrimestral() {
   if (!S.D) return;
-  if (!pg.rev) { pg.rev = S.D.trimestre.id; pg.plan = quarterShift(pg.rev, 1); loadSel(); }
+  if (!pg.rev) { pg.rev = S.D.trimestre.id; pg.plan = quarterShift(pg.rev, 1); loadDraft(); }
   ensure();
   paint();
 }
 
-// ---------- modelo da revisão ----------
-// Itens do trimestre revisado já presentes no planejado (OKR legado com os dois trimestres no multi-select).
+// ---------- eixo: sprints que começam em cada trimestre (as futuras projetadas a cada 14 dias) ----------
+function quarterBounds(t) {
+  const m = /^(\d{4}) - (\d)$/.exec(t || ''); if (!m) return null;
+  return { ini: new Date(Date.UTC(+m[1], (+m[2] - 1) * 3, 1)).toISOString().slice(0, 10), fim: new Date(Date.UTC(+m[1], +m[2] * 3, 0)).toISOString().slice(0, 10) };
+}
+const addDays = (iso, n) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function eixo(D) {
+  const qr = quarterBounds(pg.rev); const qp = quarterBounds(pg.plan);
+  const real = D.sprints.filter((s) => s.ini);
+  const rev = real.filter((s) => s.ini >= qr.ini && s.ini <= qr.fim).map((s) => ({ n: s.n }));
+  const plan = real.filter((s) => s.ini >= qp.ini && s.ini <= qp.fim).map((s) => ({ n: s.n }));
+  const last = real[real.length - 1];
+  if (last) {
+    let n = last.n; let ini = addDays(last.ini, 14);
+    while (ini <= qp.fim && plan.length < 10) {
+      n += 1;
+      if (ini >= qp.ini) plan.push({ n, proj: true }); else if (ini >= qr.ini) rev.push({ n, proj: true });
+      ini = addDays(ini, 14);
+    }
+  }
+  return { rev, plan };
+}
+
+// ---------- modelo: grupos por objetivo com linhas pareadas revisado × planejado ----------
 function model() {
   const R = pg.data[pg.rev]; const P = pg.data[pg.plan];
   if (!R || !P) return null;
-  const planIds = new Set([...P.D.objetivos, ...P.D.krs, ...P.D.kpis].map((x) => x.id));
-  const noPlan = (x) => planIds.has(x.id);
-  // Marcado com o trimestre planejado no Notion, mas sem objetivo pai nele (não aparece na árvore planejada).
-  const orfao = (x) => !planIds.has(x.id) && (x.trimestres || []).includes(pg.plan);
-  const norm = (t) => String(t || '').replace(/\s*\(\d+\)\s*$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
   const revIds = new Set([...R.D.objetivos, ...R.D.krs, ...R.D.kpis].map((x) => x.id));
-  const porTitulo = new Map([...P.D.objetivos, ...P.D.krs, ...P.D.kpis].filter((x) => !revIds.has(x.id)).map((x) => [norm(x.titulo), x]));
-  const medPlan = new Map(P.D.kpis.flatMap((k) => Object.values(k.medicoes || {}).map((m) => [m, k])));
-  const copiaDe = (x) => {
-    if (planIds.has(x.id)) return null;
-    const viaMed = Object.values(x.medicoes || {}).map((m) => medPlan.get(m)).find((k) => k && k.id !== x.id);
-    return viaMed || porTitulo.get(norm(x.titulo)) || null;
-  };
+  const porOrigem = new Map();
+  [...P.D.objetivos, ...P.D.krs, ...P.D.kpis].forEach((x) => (x.origem || []).forEach((o) => { if (revIds.has(o)) porOrigem.set(o, x); }));
   const regra = {};
   R.D.objetivos.forEach((o) => { regra[o.id] = objStatus(R.I, o); });
   R.D.krs.forEach((k) => { regra[k.id] = krStatus(R.I, k); });
   R.D.kpis.forEach((k) => { regra[k.id] = kpiStatus(k); });
-  return { R, P, noPlan, orfao, copiaDe, regra };
+
+  const fromExist = (x, grau, slot) => ({ kind: 'exist', slot, grau, id: x.id, url: x.url, label: x.label, ordem: x.ordem, base: { titulo: x.titulo, alvo: x.alvo ?? null, unidade: x.unidade ?? null, direcao: x.dir ?? null }, notionAbortado: x.status === 'Abortado', serie: x.serie || {} });
+  const fromCopy = (src, grau, slot) => ({ kind: 'copy', slot, grau, src, ordem: src.ordem, base: { titulo: src.titulo, alvo: src.alvo ?? null, unidade: src.unidade ?? null, direcao: src.dir ?? null }, serie: {} });
+  const fromNovo = (n) => ({ kind: 'novo', slot: n.key, grau: n.grau, ordem: n.ordem ?? null, base: { titulo: '', alvo: null, unidade: null, direcao: n.grau === 'KPI' ? '≥' : null }, serie: {} });
+  const finish = (node) => {
+    if (!node) return null;
+    node.v = { ...node.base, ...(draft.edit[node.slot] || {}) };
+    node.abortado = !!draft.abort[node.slot] || !!node.notionAbortado;
+    return node;
+  };
+  const novosDe = (paiSlot, grau) => draft.novos.filter((n) => n.pai === paiSlot && n.grau === grau).map((n) => finish(fromNovo(n)));
+  // pai abortado (no rascunho ou no Notion) leva os filhos junto
+  const herda = (node, pai) => { if (node && pai?.abortado && !node.abortado) { node.abortado = true; node.porPai = true; } return node; };
+  const vivo = (node) => node && !node.abortado;
+
+  const kpiRows = (krQ3, krQ4) => {
+    const rows = [];
+    const proprios = new Set(krQ3 ? R.I.kpisOf(krQ3.id).map((k) => k.id) : []);
+    for (const k of krQ3 ? R.I.kpisOf(krQ3.id) : []) {
+      const slot = `q:${k.id}`; const ex = porOrigem.get(k.id);
+      const q4 = herda(finish(ex ? fromExist(ex, 'KPI', slot) : (draft.dup[k.id] && vivo(krQ4) ? fromCopy(k, 'KPI', slot) : null)), krQ4);
+      rows.push({ q3: k, q4, slot, podeDup: !q4 && vivo(krQ4) });
+    }
+    if (krQ4?.kind === 'exist') {
+      for (const k of P.I.kpisOf(krQ4.id)) {
+        if ((k.origem || []).some((o) => proprios.has(o))) continue;
+        const q4 = herda(finish(fromExist(k, 'KPI', `e:${k.id}`)), krQ4);
+        rows.push({ q3: null, q4, slot: q4.slot });
+      }
+    }
+    if (vivo(krQ4)) novosDe(krQ4.slot, 'KPI').forEach((n) => rows.push({ q3: null, q4: n, slot: n.slot }));
+    return rows;
+  };
+  const krRows = (oQ3, oQ4) => {
+    const rows = [];
+    const proprios = new Set(oQ3 ? R.I.krsOf(oQ3.id).map((k) => k.id) : []);
+    for (const kr of oQ3 ? R.I.krsOf(oQ3.id) : []) {
+      const slot = `q:${kr.id}`; const ex = porOrigem.get(kr.id);
+      const q4 = herda(finish(ex ? fromExist(ex, 'Resultado-Chave', slot) : (draft.dup[kr.id] && vivo(oQ4) ? fromCopy(kr, 'Resultado-Chave', slot) : null)), oQ4);
+      rows.push({ q3: kr, q4, slot, podeDup: !q4 && vivo(oQ4), kpis: kpiRows(kr, q4) });
+    }
+    if (oQ4?.kind === 'exist') {
+      for (const kr of P.I.krsOf(oQ4.id)) {
+        if ((kr.origem || []).some((o) => proprios.has(o))) continue;
+        const q4 = herda(finish(fromExist(kr, 'Resultado-Chave', `e:${kr.id}`)), oQ4);
+        rows.push({ q3: null, q4, slot: q4.slot, kpis: kpiRows(null, q4) });
+      }
+    }
+    if (vivo(oQ4)) novosDe(oQ4.slot, 'Resultado-Chave').forEach((n) => rows.push({ q3: null, q4: n, slot: n.slot, kpis: kpiRows(null, n) }));
+    return rows;
+  };
+
+  const grupos = [];
+  for (const o of R.D.objetivos) {
+    const slot = `q:${o.id}`; const ex = porOrigem.get(o.id);
+    const q4 = finish(ex ? fromExist(ex, 'Objetivo', slot) : (draft.dup[o.id] ? fromCopy(o, 'Objetivo', slot) : null));
+    grupos.push({ q3: o, q4, slot, krs: krRows(o, q4) });
+  }
+  const pareados = new Set(grupos.map((g) => g.q4?.id).filter(Boolean));
+  for (const o of P.D.objetivos) {
+    if (pareados.has(o.id)) continue;
+    const q4 = finish(fromExist(o, 'Objetivo', `e:${o.id}`));
+    grupos.push({ q3: null, q4, slot: q4.slot, krs: krRows(null, q4) });
+  }
+  draft.novos.filter((n) => n.grau === 'Objetivo').forEach((n) => { const q4 = finish(fromNovo(n)); grupos.push({ q3: null, q4, slot: q4.slot, krs: krRows(null, q4) }); });
+  return { R, P, regra, grupos, eixo: eixo(R.D) };
 }
 
-const finalOf = (id) => sel.fim[id] || null;
+// ---------- itens para o plano de escrita ----------
+const edited = (node) => {
+  const e = draft.edit[node.slot]; if (!e) return false;
+  return Object.keys(e).some((k) => (e[k] ?? null) !== (node.base[k] ?? null));
+};
+// Ordem dos itens novos: depois do último irmão.
+const ordemNova = (irmaos, i) => {
+  const antes = irmaos.slice(0, i).map((r) => r.q4?.ordem ?? r.q3?.ordem).filter((x) => x != null);
+  return antes.length ? Math.max(...antes) + 1 : i + 1;
+};
 
-// Destino de um objetivo marcado "dentro de…" (perdido = escolhido mas não está mais no trimestre planejado).
-function destOf(M, o) {
-  const d = sel.dup[o.id] || '';
-  if (!d.startsWith('dest:')) return { dest: null, perdido: null };
-  const dest = M.P.I.objById[d.slice(5)];
-  return dest ? { dest, perdido: null } : { dest: null, perdido: d.slice(5) };
+export function itensDoRascunho(M) {
+  const itens = [];
+  // devolve true se o nó (ou algum descendente) vai para o plano
+  const add = (node, paiSlot, ordem, filhos) => {
+    if (!node) return false;
+    if (node.kind === 'exist') {
+      if (node.notionAbortado) return false;
+      if (node.porPai) { itens.push({ key: node.slot, grau: node.grau, pai: paiSlot, id: node.id, abortar: true, titulo: node.base.titulo }); filhos.forEach((f) => f()); return true; }
+      const sub = filhos.map((f) => f()).some(Boolean);
+      const abortar = !!draft.abort[node.slot] || !!node.porPai; const ed = edited(node);
+      if (!abortar && !ed && !sub) return false;
+      itens.push({ key: node.slot, grau: node.grau, pai: paiSlot, id: node.id, abortar, editado: ed, ...(ed ? node.v : { titulo: node.base.titulo }) });
+      return true;
+    }
+    if (node.abortado) return false;
+    itens.push({ key: node.slot, grau: node.grau, pai: paiSlot, origem: node.kind === 'copy' ? node.src.id : null, ordem: node.ordem ?? ordem, ...node.v });
+    filhos.forEach((f) => f());
+    return true;
+  };
+  M.grupos.forEach((g, gi) => add(g.q4, null, ordemNova(M.grupos, gi),
+    g.krs.map((r, ri) => () => add(r.q4, g.slot, ordemNova(g.krs, ri),
+      r.kpis.map((k, ki) => () => add(k.q4, r.slot, ordemNova(r.kpis, ki), []))))));
+  return itens;
 }
-// Páginas novas: objetivos copiados + KRs + KPIs marcados.
-const nCopias = (M) => M.R.D.objetivos.filter((o) => sel.dup[o.id] && !destOf(M, o).dest).length
-  + M.R.D.krs.filter((k) => sel.dup[k.id]).length + M.R.D.kpis.filter((k) => sel.dup[k.id]).length;
-const triFim = (t) => { const m = /^(\d{4}) - (\d)$/.exec(t || ''); return m ? new Date(Date.UTC(+m[1], +m[2] * 3, 0)).toISOString().slice(0, 10).split('-').reverse().join('/') : '—'; };
+const statusFinal = () => Object.entries(draft.fim).map(([id, status]) => ({ id, status }));
+function contagem(M) {
+  const it = itensDoRascunho(M);
+  return { criar: it.filter((x) => !x.id).length, editar: it.filter((x) => x.id && x.editado && !x.abortar).length, abortar: it.filter((x) => x.abortar).length, fim: statusFinal().length };
+}
 
-// ---------- interação: duplicar marca os ancestrais; desmarcar leva os descendentes ----------
-function setDupObj(M, o, v) {
-  if (v) sel.dup[o.id] = v; else delete sel.dup[o.id];
-  if (!v) M.R.I.krsOf(o.id).forEach((kr) => setDupKr(M, kr, false));
+// ---------- gráfico: revisado | planejado, alvo do planejado arrastável ----------
+const W = 1800; const H = 150; const PT = 22; const PB = 22; const MID = W / 2; const GAP = 14;
+function scaleFor(row, M) {
+  const k = row.q3; const v4 = row.q4?.v;
+  const nums = [];
+  M.eixo.rev.forEach((s) => { const x = k?.serie?.[String(s.n)]; if (x != null) nums.push(x); });
+  M.eixo.plan.forEach((s) => { const x = row.q4?.serie?.[String(s.n)]; if (x != null) nums.push(x); });
+  if (k?.alvo != null) nums.push(k.alvo);
+  if (v4?.alvo != null) nums.push(Number(v4.alvo));
+  let lo = Math.min(0, ...nums); let hi = Math.max(1, ...nums);
+  if (hi === lo) hi = lo + 1;
+  const pad = (hi - lo) * 0.35; hi += pad; if (lo < 0) lo -= pad * 0.3;
+  return { lo, hi };
 }
-function setDupKr(M, kr, v) {
-  if (v) { sel.dup[kr.id] = true; if (!sel.dup[kr.obj]) sel.dup[kr.obj] = 'novo'; } else delete sel.dup[kr.id];
-  if (!v) M.R.I.kpisOf(kr.id).forEach((k) => { delete sel.dup[k.id]; });
+const yOf = (sc, v) => H - PB - ((v - sc.lo) / (sc.hi - sc.lo)) * (H - PT - PB);
+const vOf = (sc, y) => sc.lo + ((H - PB - y) / (H - PT - PB)) * (sc.hi - sc.lo);
+export function niceStep(range) {
+  const raw = range / 60; const p = 10 ** Math.floor(Math.log10(raw || 1));
+  return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw - 1e-12) || p * 10;
 }
-function setDupKpi(M, k, v) {
-  if (v) { sel.dup[k.id] = true; setDupKr(M, M.R.I.krById[k.kr], true); } else delete sel.dup[k.id];
+export const snapTo = (v, step) => Number((Math.round(v / step) * step).toFixed(Math.max(0, -Math.floor(Math.log10(step)))));
+
+function chart(row, M) {
+  const sc = scaleFor(row, M); const k = row.q3; const q4 = row.q4 && !row.q4.abortado ? row.q4 : null;
+  const xs3 = M.eixo.rev; const xs4 = M.eixo.plan;
+  const x3 = (i) => (xs3.length > 1 ? 24 + (i * (MID - GAP - 48)) / (xs3.length - 1) : (MID - GAP) / 2);
+  const x4 = (i) => (xs4.length > 1 ? MID + GAP + 24 + (i * (W - MID - GAP - 48 - 60)) / (xs4.length - 1) : MID + (W - MID) / 2);
+  let s = `<svg class="tq-chart" viewBox="0 0 ${W} ${H}" data-lo="${sc.lo}" data-hi="${sc.hi}" role="img" aria-label="Série do KPI por sprint e alvos dos dois trimestres">`;
+  s += `<line class="grid" x1="8" x2="${W - 8}" y1="${H - PB}" y2="${H - PB}"/><line class="sep" x1="${MID}" x2="${MID}" y1="4" y2="${H - 4}"/>`;
+  if (k) {
+    if (k.alvo != null) { const ty = yOf(sc, k.alvo); s += `<line class="tgt" x1="10" x2="${MID - GAP}" y1="${ty}" y2="${ty}"/><text class="tl" x="${MID - GAP}" y="${ty - 4}" text-anchor="end">alvo ${esc(k.dir || '')} ${fmt(k.alvo)}</text>`; }
+    const pts = xs3.map((sp, i) => (k.serie[String(sp.n)] != null ? [x3(i), yOf(sc, k.serie[String(sp.n)])] : null)).filter(Boolean);
+    if (pts.length > 1) s += `<polyline class="ln" points="${pts.map((p) => p.join(',')).join(' ')}"/>`;
+    const col = stColor(kpiStatus(k).cls);
+    xs3.forEach((sp, i) => {
+      const v = k.serie[String(sp.n)];
+      s += v != null ? `<circle class="pt" cx="${x3(i)}" cy="${yOf(sc, v)}" r="4.5" fill="${col}"><title>#${sp.n}: ${fmt(v)}</title></circle>` : `<circle class="miss" cx="${x3(i)}" cy="${H - PB}" r="3"/>`;
+    });
+  }
+  xs3.forEach((sp, i) => { s += `<text class="sp ${sp.proj ? 'proj' : ''}" x="${x3(i)}" y="${H - 6}" text-anchor="middle">#${sp.n}${sp.proj ? '*' : ''}</text>`; });
+  xs4.forEach((sp, i) => {
+    const v = q4?.serie?.[String(sp.n)];
+    s += v != null ? `<circle class="pt" cx="${x4(i)}" cy="${yOf(sc, v)}" r="4.5" fill="var(--accent)"><title>#${sp.n}: ${fmt(v)}</title></circle>` : `<circle class="miss" cx="${x4(i)}" cy="${H - PB}" r="3"/>`;
+    s += `<text class="sp ${sp.proj ? 'proj' : ''}" x="${x4(i)}" y="${H - 6}" text-anchor="middle">#${sp.n}${sp.proj ? '*' : ''}</text>`;
+  });
+  if (q4) {
+    const a = q4.v.alvo == null || q4.v.alvo === '' ? null : Number(q4.v.alvo);
+    const ty = yOf(sc, a ?? (k?.alvo ?? (sc.lo + sc.hi) / 2));
+    const lbl = a == null ? 'arraste para definir o alvo' : `alvo ${q4.v.direcao || ''} ${fmt(a)}${q4.v.unidade ? ` ${q4.v.unidade}` : ''}`;
+    s += `<g class="tq-tgt4 ${a == null ? 'vazio' : ''} ${state.tv ? '' : 'drag'}" data-slot="${esc(row.slot)}"><line class="hit" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><line class="t4" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><circle class="h" cx="${W - 22}" cy="${ty}" r="8"/><text class="tl4" x="${W - 38}" y="${ty - 8}" text-anchor="end">${esc(lbl)}</text></g>`;
+  }
+  return `${s}</svg>`;
 }
 
 // ---------- desenho ----------
-function pills(M, x) {
-  const st = M.regra[x.id];
-  return `<span class="pill ${st.cls}" title="Status pela regra">${esc(st.txt)}</span><span class="pill" title="Status no Notion">Notion: ${esc(x.status || '—')}</span>${M.noPlan(x) ? `<span class="pill st-run" title="O mesmo item já está marcado com ${esc(pg.plan)} no Notion">já em ${esc(triLabel(pg.plan))}</span>` : ''}${M.copiaDe(x) ? `<span class="pill st-warn" title="Parece já ter cópia em ${esc(pg.plan)}: ${esc(M.copiaDe(x).titulo)}">cópia já em ${esc(triLabel(pg.plan))}? (${esc(M.copiaDe(x).label)})</span>` : ''}${M.orfao(x) ? `<span class="pill st-warn" title="Marcado com ${esc(pg.plan)} no Notion, mas o objetivo pai não está em ${esc(pg.plan)}: não aparece na árvore planejada">marcado ${esc(triLabel(pg.plan))}, sem pai lá</span>` : ''}`;
-}
+const pills = (M, x) => `<span class="pill ${M.regra[x.id].cls}" title="Status pela regra">${esc(M.regra[x.id].txt)}</span><span class="pill" title="Status no Notion">Notion: ${esc(x.status || '—')}</span>`;
+const GRAU_TXT = { Objetivo: 'Objetivo', 'Resultado-Chave': 'Resultado-Chave', KPI: 'KPI' };
 
-function controls(M, x, nivel) {
-  if (state.tv) return '';
-  const travado = M.noPlan(x);
-  let dup;
-  if (nivel === 'obj') {
-    const v = sel.dup[x.id] || '';
-    const dests = M.P.D.objetivos.filter((o) => o.id !== x.id);
-    dup = `<label class="tq-c">Duplicar <select data-dupobj="${x.id}" ${travado ? 'disabled' : ''}><option value="">não</option><option value="novo" ${v === 'novo' ? 'selected' : ''}>como objetivo novo</option>${dests.map((o) => `<option value="dest:${o.id}" ${v === `dest:${o.id}` ? 'selected' : ''}>dentro de ${esc(o.label)} · ${esc(o.curto)}</option>`).join('')}</select></label>`;
-  } else {
-    dup = `<label class="tq-c"><input type="checkbox" data-dup="${x.id}" data-nivel="${nivel}" ${sel.dup[x.id] ? 'checked' : ''} ${travado ? 'disabled' : ''}> duplicar</label>`;
-  }
+function q3Cell(M, x, grau) {
+  if (!x) return '<div class="tq-cell vazio"></div>';
   const regra = finalPelaRegra(M.regra[x.id]);
-  const fim = `<label class="tq-c">Status final <select data-fim="${x.id}"><option value="">${regra ? `não mudar (regra: ${esc(regra)})` : 'não mudar'}</option>${STATUS_FINAL.map((s) => `<option ${sel.fim[x.id] === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`;
-  const nota = `<input class="tq-nota" data-nota="${x.id}" placeholder="ajustes (nova descrição, alvo…)" value="${esc(sel.nota[x.id] || '')}">`;
-  return `<div class="tq-ctl">${dup}${fim}${nota}</div>`;
+  const fim = state.tv ? '' : `<label class="tq-c">Status final <select data-fim="${x.id}"><option value="">não mudar${regra ? ` (regra: ${esc(regra)})` : ''}</option>${STATUS_FINAL.map((s) => `<option ${draft.fim[x.id] === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`;
+  return `<div class="tq-cell q3"><div class="tq-h"><span class="eyebrow">${esc(x.label)} · ${GRAU_TXT[grau]}</span><a href="${esc(x.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a></div><div class="t">${grau === 'Objetivo' ? `${esc(x.icone)} ` : ''}${esc(x.titulo)}</div><div class="tq-pills">${pills(M, x)}</div>${grau === 'KPI' ? scoreHTML(x) : ''}${fim ? `<div class="tq-ctl">${fim}</div>` : ''}</div>`;
 }
 
-function kpiRow(M, k) {
-  return `<div class="tq-kpi"><div class="tq-kn"><span class="eyebrow">${esc(k.label)} · KPI</span><div class="t">${esc(k.titulo)} <a href="${esc(k.url)}" target="_blank" rel="noopener">↗</a></div><div class="tq-pills">${pills(M, k)}</div>${controls(M, k, 'kpi')}</div><div>${scoreHTML(k)}</div><div>${spark(k, M.R.I.sprintNums)}</div></div>`;
+function q4Cell(row, grau) {
+  const n = row.q4; const ro = state.tv;
+  if (!n || n.abortado) {
+    const restaurar = n && !n.notionAbortado && !n.porPai && !ro ? `<button type="button" class="btn small" data-restaurar="${esc(row.slot)}">↺ restaurar</button>` : '';
+    const dup = row.q3 && !n && !ro && (grau === 'Objetivo' || row.podeDup) ? `<button type="button" class="btn small" data-dup="${esc(row.q3.id)}" data-grau="${grau}">${grau === 'Objetivo' ? 'duplicar objetivo (com KRs e KPIs)' : grau === 'KPI' ? 'duplicar KPI' : 'duplicar KR (com KPIs)'} →</button>` : '';
+    const msg = n?.notionAbortado ? 'abortado no Notion' : n?.porPai ? 'abortado junto com o item principal' : n?.abortado ? 'abortado — não segue para o trimestre' : '';
+    return `<div class="tq-cell vazio q4">${msg ? `<span class="hint">${msg}</span>` : ''}${dup}${restaurar}</div>`;
+  }
+  const tag = n.kind === 'copy' ? '<span class="pill st-run">cópia · a criar</span>' : n.kind === 'novo' ? '<span class="pill st-run">novo · a criar</span>' : `<span class="pill">no Notion</span>${edited(n) ? '<span class="pill st-warn">editado</span>' : ''}`;
+  const head = `<div class="tq-h"><span class="eyebrow">${n.label ? `${esc(n.label)} · ` : ''}${GRAU_TXT[grau]}</span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a>` : ''}</div>`;
+  if (ro) return `<div class="tq-cell q4">${head}<div class="t">${esc(n.v.titulo)}</div><div class="tq-pills">${tag}${grau === 'KPI' && n.v.alvo != null ? `<span class="pill">alvo ${esc(n.v.direcao || '')} ${fmt(Number(n.v.alvo))} ${esc(n.v.unidade || '')}</span>` : ''}</div></div>`;
+  const s = esc(n.slot);
+  const kpiCtl = grau === 'KPI' ? `<div class="tq-kctl"><label class="tq-c">Alvo <input type="number" step="any" data-campo="alvo" data-slot="${s}" value="${n.v.alvo ?? ''}"></label><label class="tq-c">Direção <select data-campo="direcao" data-slot="${s}"><option value=""></option>${DIRS.map((d) => `<option ${n.v.direcao === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label><label class="tq-c">Unidade <select data-campo="unidade" data-slot="${s}"><option value=""></option>${[...new Set([...UNIDADES, n.v.unidade].filter(Boolean))].map((u) => `<option ${n.v.unidade === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label></div>` : '';
+  const add = grau === 'Objetivo' ? `<button type="button" class="btn small" data-add="Resultado-Chave" data-pai="${s}">＋ KR</button>` : grau === 'Resultado-Chave' ? `<button type="button" class="btn small" data-add="KPI" data-pai="${s}">＋ KPI</button>` : '';
+  const del = n.kind === 'novo' ? `<button type="button" class="btn small" data-remover="${s}">remover</button>` : `<button type="button" class="btn small tq-abort" data-abortar="${s}">abortar</button>`;
+  return `<div class="tq-cell q4 ${n.kind}">${head}<textarea class="tq-txt" rows="2" data-campo="titulo" data-slot="${s}" placeholder="Descrição ${grau === 'KPI' ? 'do KPI' : grau === 'Objetivo' ? 'do objetivo' : 'do KR'}…">${esc(n.v.titulo)}</textarea><div class="tq-pills">${tag}</div>${kpiCtl}<div class="tq-ctl">${add}${del}</div></div>`;
 }
 
-function revisao(M) {
-  const { D, I } = M.R;
-  if (!D.objetivos.length) return `<div class="empty">Nenhum objetivo de P&amp;D com Trimestre = ${esc(pg.rev)} no Notion.</div>`;
-  return D.objetivos.map((o) => {
-    const c = coverage(I, o);
-    const krs = I.krsOf(o.id).map((kr) => `<details class="kr tq-kr" data-id="${kr.id}" ${pg.closed.has(kr.id) ? '' : 'open'}><summary><div><span class="eyebrow">${esc(kr.label)} · Resultado-Chave${kr.limite ? ` · até ${dm(kr.limite)}` : ''}</span><div class="t">${esc(kr.titulo)} <a href="${esc(kr.url)}" target="_blank" rel="noopener">↗</a></div><div class="tq-pills">${pills(M, kr)}</div></div></summary><div class="body">${controls(M, kr, 'kr')}${I.kpisOf(kr.id).map((k) => kpiRow(M, k)).join('') || '<div class="empty">Sem KPIs cadastrados.</div>'}</div></details>`).join('');
-    return `<details class="panel tq-obj" data-id="${o.id}" ${pg.closed.has(o.id) ? '' : 'open'}><summary><span class="ico">${esc(o.icone)}</span><div><span class="eyebrow">${esc(o.label)} · Objetivo · ${I.krsOf(o.id).length} KRs · ${c.n} KPIs · ${c.med} com medição${o.limite ? ` · até ${dm(o.limite)}` : ''}</span><h3>${esc(o.titulo)} <a href="${esc(o.url)}" target="_blank" rel="noopener">↗</a></h3><div class="tq-pills">${pills(M, o)}${o.projetos.map((p) => `<span class="pill">${esc(I.byId[p]?.nome || '?')}</span>`).join('')}</div></div></summary>${controls(M, o, 'obj')}${krs || '<div class="empty">Objetivo sem resultados-chave cadastrados.</div>'}</details>`;
-  }).join('');
-}
-
-function planejado(M) {
-  const { D, I } = M.P;
-  if (!D.objetivos.length) return `<div class="empty">Nenhum objetivo de P&amp;D com Trimestre = ${esc(pg.plan)} no Notion.</div>`;
-  const revIds = new Set([...M.R.D.objetivos, ...M.R.D.krs, ...M.R.D.kpis].map((x) => x.id));
-  const tag = (x) => (revIds.has(x.id) ? ` <span class="pill" title="Mesmo item do trimestre revisado">também ${esc(triLabel(pg.rev))}</span>` : '');
-  const alvo = (k) => (k.alvo == null ? '<span class="pill st-warn">⚠ definir alvo</span>' : `<span class="mono">${esc(k.dir || '')} ${fmt(k.alvo)} ${esc(k.unidade || '')}</span>`);
-  return `<ul class="tq-tree">${D.objetivos.map((o) => `<li><b>${esc(o.label)}</b> ${esc(o.icone)} <a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.titulo)}</a>${tag(o)}<ul>${I.krsOf(o.id).map((kr) => `<li><span class="mono">${esc(kr.label)}</span> ${esc(kr.titulo)}${tag(kr)}<ul>${I.kpisOf(kr.id).map((k) => `<li><span class="mono">${esc(k.label)}</span> ${esc(k.titulo)} · ${alvo(k)}${tag(k)}</li>`).join('')}</ul></li>`).join('')}</ul></li>`).join('')}</ul>`;
-}
-
-function rascunho(M) {
-  const { D, I } = M.R;
-  const objs = D.objetivos.filter((o) => sel.dup[o.id]);
-  if (!objs.length) return '<div class="empty">Nada marcado para duplicar.</div>';
-  const nota = (id) => (sel.nota[id] ? ` <i class="tq-n">— ${esc(sel.nota[id])}</i>` : '');
-  return `<ul class="tq-tree">${objs.map((o) => {
-    const { dest, perdido } = destOf(M, o);
-    const head = dest ? `→ dentro de <b>${esc(dest.label)}</b> de ${esc(triLabel(pg.plan))} ${esc(dest.titulo)} <span class="hint">(de ${esc(o.label)})</span>${nota(o.id)}` : `<b>＋ ${esc(o.label)}</b> ${esc(o.titulo)}${perdido ? ' <span class="pill st-warn">destino não está mais no trimestre</span>' : ''}${nota(o.id)}`;
-    const krs = I.krsOf(o.id).filter((kr) => sel.dup[kr.id]);
-    return `<li>${head}<ul>${krs.map((kr) => `<li>＋ <span class="mono">${esc(kr.label)}</span> ${esc(kr.titulo)}${nota(kr.id)}<ul>${I.kpisOf(kr.id).filter((k) => sel.dup[k.id]).map((k) => `<li>＋ <span class="mono">${esc(k.label)}</span> ${esc(k.titulo)} · ${Object.keys(k.medicoes).length} medições religadas${nota(k.id)}</li>`).join('')}</ul></li>`).join('')}</ul></li>`;
-  }).join('')}</ul>`;
-}
-
-function resumo(M) {
-  const cont = {}; M.R.D.kpis.forEach((k) => { const t = M.regra[k.id].txt; cont[t] = (cont[t] || 0) + 1; });
-  const nd = nCopias(M);
-  return `<div class="tq-sum"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span>${Object.entries(cont).map(([t, n]) => `<span class="pill ${kpiStatus(M.R.D.kpis.find((k) => M.regra[k.id].txt === t)).cls}">${n} ${esc(t)}</span>`).join('')}<span><b>${esc(triLabel(pg.plan))}</b>: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run">${nd} páginas novas a criar</span></div>`;
+const kpiRow = (M, r) => `<div class="tq-row kpi"><div class="tq-pair">${q3Cell(M, r.q3, 'KPI')}${q4Cell(r, 'KPI')}</div>${chart(r, M)}</div>`;
+const krRow = (M, r) => `<div class="tq-row kr"><div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k) => kpiRow(M, k)).join('')}</div>`;
+function grupo(M, g) {
+  const titulo = g.q3 ? `${g.q3.label} · ${g.q3.titulo}` : `${triLabel(pg.plan)} · ${g.q4?.v.titulo || 'objetivo novo'}`;
+  return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${esc(titulo.slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r) => krRow(M, r)).join('')}</details>`;
 }
 
 function seletores() {
@@ -185,144 +308,127 @@ function seletores() {
   return `<label class="ctl">Revisar <select id="tq-rev">${opt(revs, pg.rev)}</select></label><label class="ctl">Planejar <select id="tq-plan">${opt(plans, pg.plan)}</select></label>`;
 }
 
+function barra(M) {
+  const c = contagem(M); const total = c.criar + c.editar + c.abortar + c.fim;
+  const pode = !!S.meta?.pode_gravar && !state.tv;
+  return `<div class="tq-bar"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span><span><b>${esc(triLabel(pg.plan))}</b> no Notion: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run" id="tq-cont">rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais</span><span class="spacer"></span>${state.tv ? '' : `<button class="btn small" id="tq-novo-obj">＋ objetivo em ${esc(triLabel(pg.plan))}</button><button class="btn small" id="tq-descartar" ${total ? '' : 'disabled'}>Descartar rascunho</button><button class="btn primary" id="tq-gravar" ${total && pode ? '' : 'disabled'} title="${pode ? 'Mostra o plano de escrita antes de gravar' : 'Somente leitura: o rascunho fica só neste navegador'}">Gravar no Notion${total ? ` (${total})` : ''}</button>`}</div>`;
+}
+
 function paint() {
   const el = $('#page-trimestral');
   if (!el || el.hidden) return;
-  // Não redesenha enquanto alguém digita: espera sair do campo.
+  // não redesenha enquanto alguém digita: espera sair do campo
   if (el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]),textarea')) { pg.pending = true; return; }
   pg.pending = false;
   const M = model();
-  const head = `<div class="page-h"><h2>Trimestral · OKRs de P&amp;D</h2>${seletores()}<p>Revisão de ${esc(triLabel(pg.rev))} (status pela regra × status no Notion, série dos KPIs por sprint) e rascunho de ${esc(triLabel(pg.plan))}. <b>Só leitura:</b> nada é gravado no Notion por aqui — as decisões viram um pedido para o Claude, que mostra o plano de escrita antes de gravar.</p></div>`;
+  const head = `<div class="page-h"><h2>Trimestral · OKRs de P&amp;D</h2>${seletores()}<p>À esquerda, a revisão de ${esc(triLabel(pg.rev))}; à direita, ${esc(triLabel(pg.plan))}. Duplique o objetivo (vem com KRs e KPIs), edite os textos, arraste o alvo no gráfico, aborte o que não segue ou acrescente KRs e KPIs. Tudo fica num rascunho neste navegador até <b>Gravar no Notion</b>, que mostra o plano de escrita antes. Sprints com * são projetadas.</p></div>`;
   if (!M) {
     el.innerHTML = `${head}<div class="panel">${pg.err ? `<div class="banner crit">Não foi possível ler o Notion: ${esc(pg.err)} <button class="btn small" id="tq-retry">Tentar de novo</button></div>` : '<div class="empty">Lendo os OKRs dos dois trimestres no Notion…</div>'}</div>`;
     bindHead(el);
     const r = el.querySelector('#tq-retry'); if (r) r.onclick = () => ensure(true);
     return;
   }
-  const scrollY = window.scrollY;
-  pg.sideTop = el.querySelector('.tq-side')?.scrollTop ?? pg.sideTop;
-  el.innerHTML = `${head}${resumo(M)}<div class="tq-grid"><section class="tq-rev" aria-label="Revisão">${revisao(M)}</section>
-  <aside class="tq-side"><div class="panel"><h3>Já em ${esc(triLabel(pg.plan))} <span class="n">no Notion</span></h3>${planejado(M)}</div>
-  <div class="panel"><h3>Rascunho: a duplicar para ${esc(triLabel(pg.plan))}</h3><div id="tq-rasc">${rascunho(M)}</div></div>
-  ${state.tv ? '' : `<div class="panel"><h3>OKRs novos discutidos</h3><textarea class="big tq-novos" id="tq-novos" placeholder="Um por linha: objetivo, KRs e KPIs (com alvo, unidade e direção), área e projeto…">${esc(sel.novos)}</textarea>
-  <div class="btnrow" style="margin-top:8px"><button class="btn primary" id="tq-copy">Copiar pedido</button><button class="btn" id="tq-dl">Baixar .md</button><button class="btn small" id="tq-clear">Limpar seleção</button></div>
-  <p class="hint">Depois da reunião: cole o pedido e a transcrição do Granola numa conversa com o Claude. Ele propõe o plano de escrita (base → página → campo → atual → novo) e só grava após "pode gravar".</p>
-  <details class="tq-prev" ${pg.pedidoAberto ? 'open' : ''}><summary class="hint">ver o pedido</summary><pre class="prompt" id="tq-pedido"></pre></details></div>`}</aside></div>`;
-  window.scrollTo(0, scrollY);
-  const side = el.querySelector('.tq-side'); if (side) side.scrollTop = pg.sideTop;
-  bindHead(el); bind(el, M); updatePedido(M);
+  const y = window.scrollY;
+  el.innerHTML = `${head}${barra(M)}<div class="tq-cols"><div>${esc(triLabel(pg.rev))} · revisão</div><div>${esc(triLabel(pg.plan))} · planejamento</div></div>${M.grupos.map((g) => grupo(M, g)).join('') || '<div class="empty">Nenhum objetivo de P&amp;D nos dois trimestres.</div>'}`;
+  window.scrollTo(0, y);
+  bindHead(el); bind(el, M);
 }
 
 function bindHead(el) {
   const rev = el.querySelector('#tq-rev'); const plan = el.querySelector('#tq-plan');
-  rev.onchange = () => { pg.rev = rev.value; pg.plan = quarterShift(pg.rev, 1); loadSel(); paint(); ensure(); };
-  plan.onchange = () => { pg.plan = plan.value; loadSel(); paint(); ensure(); };
+  rev.onchange = () => { pg.rev = rev.value; pg.plan = quarterShift(pg.rev, 1); loadDraft(); paint(); ensure(); };
+  plan.onchange = () => { pg.plan = plan.value; loadDraft(); paint(); ensure(); };
+}
+
+// marca o item e toda a subárvore do revisado para duplicar
+function marcarDup(M, id, grau) {
+  const I = M.R.I;
+  const marca = (x) => { draft.dup[x] = true; delete draft.abort[`q:${x}`]; };
+  const kpis = (krId) => I.kpisOf(krId).forEach((k) => marca(k.id));
+  marca(id);
+  if (grau === 'Objetivo') I.krsOf(id).forEach((kr) => { marca(kr.id); kpis(kr.id); });
+  else if (grau === 'Resultado-Chave') kpis(id);
 }
 
 function bind(el, M) {
-  const refresh = () => { saveSel(); syncChecks(el, M); el.querySelector('#tq-rasc').innerHTML = rascunho(M); updatePedido(M); };
-  $$('[data-dupobj]', el).forEach((s) => { s.onchange = () => { setDupObj(M, M.R.I.objById[s.dataset.dupobj], s.value); refresh(); }; });
-  $$('[data-dup]', el).forEach((c) => {
-    c.onchange = () => {
-      const id = c.dataset.dup;
-      if (c.dataset.nivel === 'kr') setDupKr(M, M.R.I.krById[id], c.checked);
-      else setDupKpi(M, M.R.D.kpis.find((k) => k.id === id), c.checked);
-      refresh();
+  const repaint = () => { saveDraft(); paint(); };
+  const contador = () => {
+    const c = contagem(model()); const total = c.criar + c.editar + c.abortar + c.fim;
+    const b = el.querySelector('#tq-cont'); if (b) b.textContent = `rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais`;
+    const g = el.querySelector('#tq-gravar'); if (g) { g.disabled = !(total && S.meta?.pode_gravar && !state.tv); g.textContent = `Gravar no Notion${total ? ` (${total})` : ''}`; }
+    const d = el.querySelector('#tq-descartar'); if (d) d.disabled = !total;
+  };
+  $$('[data-dup]', el).forEach((b) => { b.onclick = () => { marcarDup(M, b.dataset.dup, b.dataset.grau); repaint(); }; });
+  $$('[data-abortar]', el).forEach((b) => { b.onclick = () => { draft.abort[b.dataset.abortar] = true; repaint(); }; });
+  $$('[data-restaurar]', el).forEach((b) => { b.onclick = () => { delete draft.abort[b.dataset.restaurar]; repaint(); }; });
+  $$('[data-remover]', el).forEach((b) => {
+    b.onclick = () => {
+      const tira = (key) => { draft.novos.filter((n) => n.pai === key).forEach((n) => tira(n.key)); draft.novos = draft.novos.filter((n) => n.key !== key); delete draft.edit[key]; };
+      tira(b.dataset.remover); repaint();
     };
   });
-  $$('[data-fim]', el).forEach((s) => { s.onchange = () => { if (s.value) sel.fim[s.dataset.fim] = s.value; else delete sel.fim[s.dataset.fim]; saveSel(); updatePedido(M); }; });
-  $$('[data-nota]', el).forEach((i) => { i.oninput = () => { const v = i.value.trim(); if (v) sel.nota[i.dataset.nota] = i.value; else delete sel.nota[i.dataset.nota]; saveSel(); updatePedido(M); }; i.onchange = () => { el.querySelector('#tq-rasc').innerHTML = rascunho(M); }; });
-  const nov = el.querySelector('#tq-novos');
-  if (nov) nov.oninput = () => { sel.novos = nov.value; saveSel(); updatePedido(M); };
-  const cp = el.querySelector('#tq-copy'); if (cp) cp.onclick = () => copy(pedido(M), 'Pedido copiado — cole numa conversa com o Claude junto com a transcrição');
-  const dl = el.querySelector('#tq-dl'); if (dl) dl.onclick = () => download(`pedido-trimestral-${triLabel(pg.rev)}-para-${triLabel(pg.plan)}-${new Date().toISOString().slice(0, 10)}.md`, pedido(M), 'text/markdown');
-  const cl = el.querySelector('#tq-clear');
-  if (cl) cl.onclick = () => { if (confirm('Limpar todas as marcações, status finais, ajustes e OKRs novos desta revisão?')) { sel = emptySel(); saveSel(); paint(); } };
+  $$('[data-add]', el).forEach((b) => { b.onclick = () => { draft.novos.push({ key: novoKey(), grau: b.dataset.add, pai: b.dataset.pai }); repaint(); }; });
+  const novoObj = el.querySelector('#tq-novo-obj');
+  if (novoObj) novoObj.onclick = () => { draft.novos.push({ key: novoKey(), grau: 'Objetivo', pai: null }); repaint(); window.scrollTo(0, document.body.scrollHeight); };
+  $$('[data-campo]', el).forEach((i) => {
+    const set = () => {
+      const e = draft.edit[i.dataset.slot] = draft.edit[i.dataset.slot] || {};
+      e[i.dataset.campo] = i.value === '' ? null : i.dataset.campo === 'alvo' ? Number(i.value) : i.value;
+      saveDraft(); contador();
+    };
+    if (i.tagName === 'SELECT') i.onchange = () => { set(); paint(); };
+    else { i.oninput = set; if (i.dataset.campo === 'alvo') i.onchange = () => { set(); i.blur(); paint(); }; }
+  });
+  $$('[data-fim]', el).forEach((s) => { s.onchange = () => { if (s.value) draft.fim[s.dataset.fim] = s.value; else delete draft.fim[s.dataset.fim]; repaint(); }; });
   $$('details[data-id]', el).forEach((d) => { d.ontoggle = () => { if (d.open) pg.closed.delete(d.dataset.id); else pg.closed.add(d.dataset.id); }; });
-  const prev = el.querySelector('.tq-prev'); if (prev) prev.ontoggle = () => { pg.pedidoAberto = prev.open; };
-  el.onfocusout = () => { if (pg.pending) setTimeout(() => { if (!el.contains(document.activeElement)) paint(); }, 0); };
-}
-
-function syncChecks(el, M) {
-  $$('[data-dup]', el).forEach((c) => { c.checked = !!sel.dup[c.dataset.dup]; });
-  $$('[data-dupobj]', el).forEach((s) => { s.value = sel.dup[s.dataset.dupobj] || ''; });
-  const sum = el.querySelector('.tq-sum'); if (sum) sum.outerHTML = resumo(M);
-}
-
-function updatePedido(M) {
-  const pre = $('#tq-pedido'); if (pre) pre.textContent = pedido(M);
-}
-
-// ---------- pedido para o Claude ----------
-export function pedido(M) {
-  const { D, I } = M.R;
-  const hoje = new Date().toLocaleDateString('pt-BR');
-  const fimPlan = triFim(pg.plan);
-  const area = (keys) => (keys || []).map((k) => D.areas[k]?.nome || k).join(', ') || '—';
-  const proj = (ids) => (ids || []).map((p) => I.byId[p]?.nome || p).join(', ') || '—';
-  const nota = (id, ind) => (sel.nota[id] ? `\n${ind}Ajustes: ${sel.nota[id].trim()}` : '');
-  const ultima = (k) => { const l = kpiLast(k); return l ? `${fmt(l.v)} (#${l.s})` : 'sem medição'; };
-  const alvo = (k) => (k.alvo == null ? 'sem alvo' : `alvo ${k.dir || ''} ${fmt(k.alvo)} ${k.unidade || ''}`.trim());
-  const avisos = (x, ind) => [
-    M.orfao(x) ? `ATENÇÃO: a original já tem Trimestre ${pg.plan} no Notion, mas o pai não está lá` : null,
-    M.copiaDe(x) ? `ATENÇÃO: parece já existir cópia em ${pg.plan}: [${M.copiaDe(x).label} de ${pg.plan}] "${M.copiaDe(x).titulo}" (id ${M.copiaDe(x).id}) — confirmar antes de duplicar` : null,
-  ].filter(Boolean).map((a) => `\n${ind}${a}`).join('');
-  const meds = (k) => Object.entries(k.medicoes).map(([n, id]) => `${id} (#${n})`).join(', ') || 'nenhuma';
-  const R = (x) => `${x.label} de ${pg.rev}`;
-
-  const dups = D.objetivos.filter((o) => sel.dup[o.id]).map((o) => {
-    const { dest, perdido } = destOf(M, o);
-    const krs = I.krsOf(o.id).filter((kr) => sel.dup[kr.id]);
-    if (dest && !krs.length) return null;
-    const linhaO = dest
-      ? `- [${R(o)}] Objetivo · "${o.titulo}" → NÃO duplicar o objetivo; os KRs abaixo vão para dentro de [${dest.label} de ${pg.plan}] "${dest.titulo}" (${dest.url} · id ${dest.id})\n  Original: ${o.url} · id ${o.id}${nota(o.id, '  ')}`
-      : `- [${R(o)}] Objetivo · "${o.titulo}" → objetivo NOVO (cópia)${perdido ? `\n  ATENÇÃO: o destino escolhido (id ${perdido}) não está mais em ${pg.plan} — confirmar` : ''}\n  Original: ${o.url} · id ${o.id}\n  Área: ${area(o.areas)} · Projetos: ${proj(o.projetos)} · Data limite da original: ${o.limite || '—'}${avisos(o, '  ')}${nota(o.id, '  ')}`;
-    const pai = dest ? `[${dest.label} de ${pg.plan}] (id ${dest.id})` : `a cópia de [${R(o)}]`;
-    const linhas = krs.map((kr) => {
-      const kpis = I.kpisOf(kr.id).filter((k) => sel.dup[k.id]).map((k) => `    - [${R(k)}] KPI · "${k.titulo}" → cópia sob a cópia de [${R(kr)}]\n      Original: ${k.url} · id ${k.id}\n      ${alvo(k)} · última medição ${ultima(k)} · Data limite da original: ${k.limite || '—'}\n      Medições a religar (acrescentar o KPI novo na relação KPI): ${meds(k)}${avisos(k, '      ')}${nota(k.id, '      ')}`);
-      return [`  - [${R(kr)}] Resultado-Chave · "${kr.titulo}" → cópia sob ${pai}\n    Original: ${kr.url} · id ${kr.id} · Data limite da original: ${kr.limite || '—'}${avisos(kr, '    ')}${nota(kr.id, '    ')}`, ...kpis].join('\n');
+  const desc = el.querySelector('#tq-descartar');
+  if (desc) desc.onclick = () => { if (confirm('Descartar todo o rascunho (duplicações, edições, abortos, itens novos e status finais)?')) { draft = emptyDraft(); repaint(); } };
+  const grv = el.querySelector('#tq-gravar');
+  if (grv) {
+    // modelo refeito na hora: textos digitados depois do último desenho entram no plano
+    grv.onclick = () => requestWrite('okr.trimestre', { rev: pg.rev, plan: pg.plan, itens: itensDoRascunho(model()), statusFinal: statusFinal() }, {
+      tri: pg.rev,
+      onDone: (fim) => { if (fim.ok) { draft = emptyDraft(); saveDraft(); pg.data = {}; ensure(true); toast('Gravado no Notion — rascunho limpo'); } },
     });
-    return [linhaO, ...linhas].join('\n');
-  }).filter(Boolean);
+  }
+  bindDrag(el);
+  if (!el.dataset.focusout) {
+    el.dataset.focusout = '1';
+    el.addEventListener('focusout', () => setTimeout(() => {
+      const a = document.activeElement;
+      if (pg.pending && !(el.contains(a) && a.matches('input:not([type=checkbox]),textarea'))) paint();
+    }, 0));
+  }
+}
 
-  const itens = D.objetivos.flatMap((o) => [o, ...I.krsOf(o.id).flatMap((kr) => [kr, ...I.kpisOf(kr.id)])]);
-  const grau = (x) => (D.objetivos.includes(x) ? 'Objetivo' : D.krs.includes(x) ? 'Resultado-Chave' : 'KPI');
-  const comFim = itens.filter((x) => finalOf(x.id));
-  const fimLinhas = comFim.map((x) => `| ${x.label} | ${grau(x)} | ${x.titulo.replace(/\|/g, '/')} | ${x.status || '—'} | ${M.regra[x.id].txt} | **${finalOf(x.id)}** | ${x.id} |`);
-  const sugestoes = itens.filter((x) => !finalOf(x.id) && finalPelaRegra(M.regra[x.id])).map((x) => `${x.label}: ${finalPelaRegra(M.regra[x.id])}`);
-  const notasSoltas = itens.filter((x) => sel.nota[x.id] && !sel.dup[x.id]).map((x) => `- [${R(x)}] ${grau(x)} · "${x.titulo}" (${x.url}): ${sel.nota[x.id].trim()}`);
-
-  return `# Pedido ao Claude — reunião trimestral de P&D
-Revisão: ${pg.rev} → Planejamento: ${pg.plan} · reunião em ${hoje}
-Gerado pelo dashboard em ${new Date().toLocaleString('pt-BR')} · Notion lido em ${D.lido_em}
-
-## Regras de execução
-1. Nada é gravado antes do plano de escrita (base → página → campo → atual → novo) e de um "pode gravar" explícito.
-2. Duplicar = páginas NOVAS em 🎯 OKRs Táticos com o mesmo Grau, Trimestre = [${pg.plan}], copiando da original Área, Projetos, Alvo, Unidade e Direção (com os ajustes pedidos) e "item principal" = a cópia do pai (ou o destino indicado). A original não muda, exceto o Status final listado na seção 2.
-3. Data Limite das cópias: fim de ${pg.plan} (${fimPlan}), salvo ajuste — confirmar no plano de escrita.
-4. KPI duplicado: acrescentar o KPI novo na relação "KPI" de cada medição listada em 📈 Evolução de KPIs (acumulativo — nada é removido). Se a Unidade mudar, avisar antes de religar.
-5. Status final: campo Status das páginas de ${pg.rev}, SOMENTE os itens da tabela da seção 2 (decididos na reunião). A sugestão pela regra é só informativa.
-6. Itens com "ATENÇÃO": confirmar comigo antes de gravar.
-7. Sugestões da transcrição que não estão neste pedido: listar à parte, sem gravar.
-8. Registrar a discussão de cada item citado na seção "## 🗣️ Registro de reuniões" da página (### ${hoje} · Trimestral · ⬜ Conferido por —), sem apagar nada.
-
-## 1. Duplicar para ${pg.plan} (${nCopias(M)} páginas novas)
-${dups.join('\n') || '(nenhum item marcado)'}
-
-## 2. Status final de ${pg.rev} decidido na reunião (${comFim.length} itens)
-| Item | Grau | Título | Status no Notion | Pela regra | Final | id |
-|---|---|---|---|---|---|---|
-${fimLinhas.join('\n') || '| — | | | | | | |'}
-
-Sugestão pela regra para os demais (informativa, NÃO gravar sem confirmação): ${sugestoes.join('; ') || '—'}
-
-## 3. Ajustes e observações em itens não duplicados
-${notasSoltas.join('\n') || '—'}
-
-## 4. OKRs novos discutidos
-${sel.novos.trim() || '—'}
-
-## 5. Transcrição (Granola)
-(cole aqui)
-`;
+// Arrastar o alvo do planejado no gráfico (escala fixa durante o arraste, valor arredondado a um passo "redondo").
+function bindDrag(el) {
+  $$('.tq-tgt4.drag', el).forEach((g) => {
+    g.onpointerdown = (e) => {
+      e.preventDefault();
+      const svg = g.ownerSVGElement; const sc = { lo: Number(svg.dataset.lo), hi: Number(svg.dataset.hi) };
+      const step = niceStep(sc.hi - sc.lo);
+      const slot = g.dataset.slot;
+      const input = el.querySelector(`input[data-campo="alvo"][data-slot="${CSS.escape(slot)}"]`);
+      const toY = (ev) => { const r = svg.getBoundingClientRect(); return ((ev.clientY - r.top) / r.height) * H; };
+      const n = (draft.edit[slot] || {}); const t0 = g.querySelector('text').textContent;
+      const dir = n.direcao ?? (/alvo (\S+) /.exec(t0)?.[1] || ''); const uni = (/alvo \S+ [\d.,-]+ (.+)$/.exec(t0)?.[1]) || '';
+      const y0 = e.clientY; let moveu = false;
+      g.setPointerCapture(e.pointerId); g.classList.add('arrastando');
+      const move = (ev) => {
+        const v = snapTo(vOf(sc, Math.max(4, Math.min(H - PB, toY(ev)))), step); const ty = yOf(sc, v);
+        g.querySelectorAll('line').forEach((l) => { l.setAttribute('y1', ty); l.setAttribute('y2', ty); });
+        g.querySelector('circle').setAttribute('cy', ty);
+        const t = g.querySelector('text'); t.setAttribute('y', ty - 8); t.textContent = `alvo ${['≥', '≤', '='].includes(dir) ? `${dir} ` : ''}${fmt(v)}${uni ? ` ${uni}` : ''}`;
+        if (input) input.value = v;
+        g.dataset.v = v;
+      };
+      g.onpointermove = (ev) => { if (!moveu && Math.abs(ev.clientY - y0) < 3) return; moveu = true; move(ev); };
+      g.onpointerup = () => {
+        g.onpointermove = null; g.onpointerup = null; g.classList.remove('arrastando');
+        if (!moveu) return; // clique sem arrastar não muda o alvo
+        const e2 = draft.edit[slot] = draft.edit[slot] || {}; e2.alvo = Number(g.dataset.v); saveDraft(); paint();
+      };
+    };
+  });
 }

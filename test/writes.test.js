@@ -180,3 +180,73 @@ test('rollover: cria a #28, revincula metas e tarefas (acumulativo), registra hi
   assert.equal([...fake.pages.values()].filter((p) => read(p, 'sprints', 'numero') === 28).length, 1);
   for (const m of metas) assert.equal(read(fake.page(m.id), 'metas', 'sprint').filter((id) => id === s28[0].id).length, 1);
 });
+
+// ---------- reunião trimestral: rascunho gravado em lote ----------
+test('trimestral: copia objetivo/KR/KPI com Origem e Trimestre novo, religa medições, cria KR novo, aplica status final; refazer não duplica', async () => {
+  const { fake, api, D, run } = await setup();
+  const o = D.objetivos[0];
+  const kr = D.krs.find((k) => k.obj === o.id);
+  const kpi = D.kpis.find((k) => k.kr === kr.id && Object.keys(k.medicoes).length);
+  assert.ok(kpi, 'demo tem KPI com medição');
+  const itens = [
+    { key: `q:${o.id}`, grau: 'Objetivo', pai: null, origem: o.id, titulo: `${o.titulo} (Q4)`, ordem: 1 },
+    { key: `q:${kr.id}`, grau: 'Resultado-Chave', pai: `q:${o.id}`, origem: kr.id, titulo: kr.titulo, ordem: 1 },
+    { key: `q:${kpi.id}`, grau: 'KPI', pai: `q:${kr.id}`, origem: kpi.id, titulo: kpi.titulo, alvo: 42, unidade: kpi.unidade, direcao: '≥', ordem: 1 },
+    { key: 'n:novo', grau: 'Resultado-Chave', pai: `q:${o.id}`, origem: null, titulo: 'KR novo do quarto trimestre', ordem: 9 },
+  ];
+  const dados = { rev: '2026 - 3', plan: '2026 - 4', itens, statusFinal: [{ id: kpi.id, status: 'Não atingido' }] };
+  const { plan, fim } = await run('okr.trimestre', dados);
+  assert.deepEqual(plan.bloqueios, []);
+  assert.ok(fim.ok, JSON.stringify(fim?.erro));
+  const novos = [...fake.pages.values()].filter((p) => read(p, 'okrs', 'trimestre').includes('2026 - 4'));
+  assert.equal(novos.length, 4);
+  const byTitle = (t) => novos.find((p) => read(p, 'okrs', 'titulo') === t);
+  const oN = byTitle(`${o.titulo} (Q4)`); const krN = novos.find((p) => read(p, 'okrs', 'origem').includes(kr.id)); const kpiN = novos.find((p) => read(p, 'okrs', 'origem').includes(kpi.id));
+  assert.deepEqual(read(oN, 'okrs', 'origem'), [o.id]);
+  assert.deepEqual(read(krN, 'okrs', 'pai'), [oN.id]);
+  assert.deepEqual(read(kpiN, 'okrs', 'pai'), [krN.id]);
+  assert.equal(read(kpiN, 'okrs', 'alvo'), 42);
+  assert.equal(read(kpiN, 'okrs', 'status'), 'Não iniciado');
+  assert.equal(read(kpiN, 'okrs', 'limite')?.start, '2026-12-31');
+  assert.deepEqual(read(byTitle('KR novo do quarto trimestre'), 'okrs', 'pai'), [oN.id]);
+  // medições do KPI original agora também apontam para a cópia (acumulativo)
+  for (const mId of Object.values(kpi.medicoes)) {
+    const ks = read(fake.page(mId), 'medicoes', 'kpi');
+    assert.ok(ks.includes(kpi.id) && ks.includes(kpiN.id));
+  }
+  assert.equal(read(fake.page(kpi.id), 'okrs', 'status'), 'Não atingido');
+
+  // a cópia aparece no snapshot de 2026-4 com Origem e a série herdada
+  const D4 = await snapshotOf(api, { tri: '2026 - 4' });
+  const k4 = D4.kpis.find((k) => k.id === kpiN.id);
+  assert.deepEqual(k4.origem, [kpi.id]);
+  assert.deepEqual(k4.serie, kpi.serie);
+
+  // refazer o mesmo rascunho não cria nada de novo
+  const again = await run('okr.trimestre', { ...dados, statusFinal: [] });
+  assert.ok(again.fim.ok);
+  assert.equal([...fake.pages.values()].filter((p) => read(p, 'okrs', 'trimestre').includes('2026 - 4')).length, 4);
+});
+
+test('trimestral: edita e aborta itens existentes do trimestre planejado; descrição vazia bloqueia', async () => {
+  const { fake, api, run } = await setup();
+  // cria um objetivo com KR em 2026-4 e depois edita/aborta
+  const D = await snapshotOf(api);
+  const o = D.objetivos[1];
+  await run('okr.trimestre', { rev: '2026 - 3', plan: '2026 - 4', itens: [
+    { key: 'n:o', grau: 'Objetivo', pai: null, titulo: 'Objetivo só do Q4', ordem: 1 },
+    { key: 'n:k', grau: 'Resultado-Chave', pai: 'n:o', titulo: 'KR só do Q4', ordem: 1 },
+  ] });
+  const oQ4 = [...fake.pages.values()].find((p) => read(p, 'okrs', 'titulo') === 'Objetivo só do Q4');
+  const kQ4 = [...fake.pages.values()].find((p) => read(p, 'okrs', 'titulo') === 'KR só do Q4');
+  const { plan, fim } = await run('okr.trimestre', { rev: '2026 - 3', plan: '2026 - 4', itens: [
+    { key: `e:${oQ4.id}`, grau: 'Objetivo', pai: null, id: oQ4.id, titulo: 'Objetivo só do Q4 (revisado)' },
+    { key: `e:${kQ4.id}`, grau: 'Resultado-Chave', pai: `e:${oQ4.id}`, id: kQ4.id, abortar: true, titulo: 'KR só do Q4' },
+  ] });
+  assert.ok(fim.ok, JSON.stringify(fim?.erro));
+  assert.equal(plan.linhas.length, 2);
+  assert.equal(read(fake.page(oQ4.id), 'okrs', 'titulo'), 'Objetivo só do Q4 (revisado)');
+  assert.equal(read(fake.page(kQ4.id), 'okrs', 'status'), 'Abortado');
+  const vazio = await run('okr.trimestre', { rev: '2026 - 3', plan: '2026 - 4', itens: [{ key: 'n:x', grau: 'Objetivo', pai: null, origem: o.id, titulo: '  ' }] });
+  assert.ok(vazio.plan.bloqueios.some((b) => /vazia/.test(b)));
+});

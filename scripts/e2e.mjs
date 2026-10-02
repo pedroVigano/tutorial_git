@@ -93,6 +93,68 @@ try {
   await gravar(page);
   ok('medição de KPI gravada');
 
+  // Trimestral: duplicar objetivo → abortar um KR → editar texto → arrastar alvo → novo KR → gravar → reabrir pareado
+  await page.click('[data-page="trimestral"]');
+  await page.waitForSelector('.tq-grp', { timeout: 15000 });
+  const grp = page.locator('.tq-grp').first();
+  await grp.locator('[data-dup][data-grau="Objetivo"]').click();
+  await page.waitForSelector('.tq-grp >> nth=0 >> .tq-cell.q4.copy');
+  const nKr = await page.locator('.tq-grp').first().locator('.tq-row.kr').count();
+  const nCopias = await page.locator('.tq-grp').first().locator('.tq-cell.q4.copy').count();
+  assert.ok(nCopias > nKr, 'duplicar objetivo copia KRs e KPIs');
+  // abortar o 2º KR: some do planejado, o espaço continua
+  await page.locator('.tq-grp').first().locator('.tq-row.kr').nth(1).locator('.tq-pair').first().locator('[data-abortar]').click();
+  await page.waitForSelector('.tq-grp >> nth=0 >> [data-restaurar]');
+  // editar o texto do objetivo copiado
+  const txt = page.locator('.tq-grp').first().locator('.tq-row.obj textarea.tq-txt');
+  await txt.fill('Objetivo do quarto trimestre (e2e)');
+  await txt.blur();
+  // arrastar o alvo do 1º KPI copiado para cima
+  const alvoAntes = await page.locator('.tq-grp').first().locator('input[data-campo="alvo"]').first().inputValue();
+  const alvo4 = page.locator('.tq-grp').first().locator('.tq-tgt4.drag').first();
+  const box = await alvo4.locator('circle.h').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y - 25, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const alvoNovo = await page.locator('.tq-grp').first().locator('input[data-campo="alvo"]').first().inputValue();
+  assert.ok(alvoNovo !== '' && Number(alvoNovo) !== Number(alvoAntes), `arrastar muda o alvo (${alvoAntes} → ${alvoNovo})`);
+  // KR novo no objetivo copiado
+  await page.locator('.tq-grp').first().locator('.tq-row.obj [data-add="Resultado-Chave"]').click();
+  const novoKr = page.locator('.tq-grp').first().locator('.tq-cell.q4.novo textarea').first();
+  await novoKr.fill('Garantir KR novo criado na reunião');
+  await novoKr.blur();
+  await page.click('#tq-gravar');
+  await page.waitForSelector('.plan-t, .plan-bloq', { timeout: 30000 });
+  assert.match(await page.locator('.plan-t').innerText(), /criar página/);
+  await gravar(page);
+  await page.waitForFunction(() => document.querySelectorAll('.tq-grp .tq-cell.q4.exist').length > 0, null, { timeout: 30000 });
+  const grp0 = page.locator('.tq-grp').first();
+  assert.equal(await grp0.locator('.tq-cell.q4.copy').count(), 0, 'depois de gravar não sobra rascunho');
+  assert.match(await grp0.locator('.tq-row.obj textarea.tq-txt').inputValue(), /quarto trimestre \(e2e\)/);
+  assert.ok(await grp0.locator('[data-dup][data-grau="Resultado-Chave"]').count() >= 1, 'KR abortado continua com espaço vazio (pode duplicar depois)');
+  assert.ok(await grp0.locator('textarea.tq-txt').evaluateAll((xs) => xs.some((x) => x.value === 'Garantir KR novo criado na reunião')), 'KR novo aparece no planejado');
+  ok('trimestral: duplicar, abortar, editar, arrastar alvo, KR novo, gravar e reabrir pareado pela Origem');
+  // editar só o texto de um item que já existe habilita "Gravar"; abortar o objetivo existente leva os filhos
+  const krTxt = grp0.locator('.tq-row.kr .tq-cell.q4.exist textarea.tq-txt').first();
+  await krTxt.fill('KR existente com texto revisado');
+  await krTxt.blur();
+  assert.ok(!(await page.locator('#tq-gravar').isDisabled()), 'Gravar habilita depois de editar texto');
+  await grp0.locator('.tq-row.obj [data-abortar]').click();
+  await page.waitForSelector('.tq-grp >> nth=0 >> text=abortado junto com o item principal');
+  await page.click('#tq-gravar');
+  await page.waitForSelector('.plan-t', { timeout: 30000 });
+  const abortos = await page.locator('.plan-t tr:has-text("Abortado")').count();
+  assert.ok(abortos >= 3, `abortar objetivo existente aborta KRs e KPIs (${abortos} linhas)`);
+  await page.click('#p-cancel');
+  await page.click('#tq-descartar', { force: true }).catch(() => {});
+  page.once('dialog', (d) => d.accept());
+  await page.click('#tq-descartar');
+  ok('trimestral: texto de item existente habilita Gravar; abortar objetivo existente leva os filhos');
+  await page.click('[data-page="board"]');
+  await page.waitForSelector('.card');
+
   // 5. abortar (nada é apagado)
   await page.click('.chip:nth-of-type(1)');
   await page.locator('#lanes .card').nth(1).click();
@@ -127,22 +189,13 @@ try {
   assert.match(await p2.innerText('#user-chip'), /leitura/);
   ok('leitor: sem botões de edição');
 
-  // Trimestral: só leitura — marca um KPI para duplicar e o pedido traz o id; nenhuma chamada de gravação.
-  const gravacoes = [];
-  p2.on('request', (r) => { if (/\/api\/(plan|exec)/.test(r.url())) gravacoes.push(r.url()); });
+  // Trimestral (leitor): rascunho local funciona, mas "Gravar no Notion" fica desabilitado
   await p2.click('[data-page="trimestral"]');
-  await p2.waitForSelector('.tq-obj', { timeout: 15000 });
-  assert.equal(await p2.locator('.tq-obj').count(), 5, 'os 5 objetivos de 2026-3 do demo');
-  const kpiId = await p2.locator('input[data-dup][data-nivel="kpi"]:not([disabled])').first().getAttribute('data-dup');
-  await p2.locator(`input[data-dup="${kpiId}"]`).check();
-  const krMarcado = await p2.locator('input[data-dup][data-nivel="kr"]:checked').count();
-  assert.ok(krMarcado >= 1, 'marcar o KPI marca o KR dele');
-  const pedido = await p2.locator('#tq-pedido').textContent();
-  assert.ok(pedido.includes(kpiId), 'o pedido traz o id do KPI marcado');
-  assert.match(pedido, /objetivo NOVO \(cópia\)/);
-  assert.match(new URL(p2.url()).search, /pagina=trimestral/);
-  assert.equal(gravacoes.length, 0, 'a página Trimestral não grava no Notion');
-  ok('trimestral: revisão de 2026-3, marcar para duplicar gera pedido, sem gravação');
+  await p2.waitForSelector('.tq-grp', { timeout: 15000 });
+  await p2.locator('[data-dup][data-grau="Objetivo"]').first().click();
+  await p2.waitForSelector('.tq-cell.q4.copy');
+  assert.ok(await p2.locator('#tq-gravar').isDisabled(), 'leitor não grava');
+  ok('trimestral (leitor): rascunho local, sem gravação');
   await p2.close();
   await leitor.app.close();
 
@@ -153,4 +206,5 @@ try {
   process.exitCode = 1;
 } finally {
   await browser.close();
+  process.exit(process.exitCode ?? 0); // servidores abertos num teste que falhou não seguram o processo
 }

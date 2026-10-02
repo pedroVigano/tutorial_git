@@ -102,7 +102,7 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
 
   app.post('/api/refresh', async () => { snapshots.invalidate(); return { ok: true }; });
 
-  app.post('/api/plan', async (req) => {
+  app.post('/api/plan', async (req, reply) => {
     exigeEditor(req);
     const { acao, dados = {}, sprint = null, tri = null } = req.body || {};
     if (tri && !TRI_RE.test(tri)) return reply.code(400).send({ erro: 'Trimestre inválido' });

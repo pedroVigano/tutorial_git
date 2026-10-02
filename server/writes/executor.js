@@ -52,11 +52,16 @@ export function createExecutor({ api, audit = () => {} }) {
       case 'create': {
         const props = Object.fromEntries(Object.entries(op.props).map(([k, v]) => [k, Array.isArray(v) ? v.map(resolve) : resolve(v)]));
         if (op.dedupe) {
-          const s = spec(op.base, op.dedupe.key);
-          const cond = s.type === 'title' ? { title: { equals: op.dedupe.value } }
-            : s.type === 'number' ? { number: { equals: op.dedupe.value } }
-              : { relation: { contains: op.dedupe.value } };
-          const and = [{ property: propRef(op.base, op.dedupe.key), ...cond }];
+          const cond = (key, value) => {
+            const s = spec(op.base, key);
+            const c = s.type === 'title' ? { title: { equals: value } }
+              : s.type === 'number' ? { number: { equals: value } }
+                : s.type === 'multi_select' ? { multi_select: { contains: value } }
+                  : { relation: { contains: value } };
+            return { property: propRef(op.base, key), ...c };
+          };
+          const where = op.dedupe.where || [{ key: op.dedupe.key, value: op.dedupe.value }];
+          const and = where.map((w) => cond(w.key, resolve(w.value)));
           if (op.dedupe.sprint) and.push({ property: propRef(op.base, 'sprint'), relation: { contains: op.dedupe.sprint } });
           const found = await api.queryAll(op.base, { filter: and.length > 1 ? { and } : and[0] });
           if (found.length) {

@@ -164,3 +164,21 @@ test('medição ligada a dois KPIs (original e cópia do trimestre seguinte) ent
   assert.deepEqual(D3.objetivos.find((o) => o.id === legado.id).trimestres, ['2026 - 3', '2026 - 4']);
   assert.ok(D4.objetivos.some((o) => o.id === legado.id), 'item legado com os dois trimestres aparece nos dois');
 });
+
+test('OKRs ordenados pela coluna Ordem (vazios no fim) e KPIs numerados dentro de cada KR', async () => {
+  const sprint = makePage({ base: 'sprints', props: { titulo: 'Sprint P&D #9', numero: 9, data: { start: '2026-09-14', end: '2026-09-25' }, status: 'Em andamento' } });
+  const pd = makePage({ base: 'areas', props: { titulo: 'P&D', diretoria: 'P&D', nivel: 'Diretoria' } });
+  const okr = (titulo, grau, extra = {}, created = '2026-07-01T12:00:00.000Z') => makePage({ base: 'okrs', created_time: created, props: { titulo, grau, trimestre: ['2026 - 3'], area: [pd.id], ...extra } });
+  const oSem = okr('Objetivo sem ordem', 'Objetivo', {}, '2026-06-01T12:00:00.000Z');
+  const o2 = okr('Objetivo dois', 'Objetivo', { ordem: 2 });
+  const o1 = okr('Objetivo um', 'Objetivo', { ordem: 1 }, '2026-08-01T12:00:00.000Z');
+  const krB = okr('KR B', 'Resultado-Chave', { pai: [o1.id], ordem: 2 });
+  const krA = okr('KR A', 'Resultado-Chave', { pai: [o1.id], ordem: 1 }, '2026-08-01T12:00:00.000Z');
+  const k = (t, kr, ordem) => okr(t, 'KPI', { pai: [kr.id], ...(ordem != null ? { ordem } : {}) });
+  const kpis = [k('A2', krA, 2), k('A1', krA, 1), k('B-sem', krB), k('B1', krB, 1)];
+  const pages = Object.fromEntries([sprint, pd, oSem, o2, o1, krB, krA, ...kpis].map((p) => [p.id, p]));
+  const D = await snapshotOf(createApi(createFakeNotion({ pages }).client, { limiter: noLimiter }));
+  assert.deepEqual(D.objetivos.map((o) => `${o.label} ${o.titulo}`), ['O1 Objetivo um', 'O2 Objetivo dois', 'O3 Objetivo sem ordem']);
+  assert.deepEqual(D.krs.map((x) => `${x.label} ${x.titulo}`), ['K1a KR A', 'K1b KR B']);
+  assert.deepEqual(D.kpis.map((x) => `${x.label} ${x.titulo}`), ['K1a.1 A1', 'K1a.2 A2', 'K1b.1 B1', 'K1b.2 B-sem']);
+});

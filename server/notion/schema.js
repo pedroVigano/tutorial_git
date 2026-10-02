@@ -41,9 +41,12 @@ export const BASES = {
       direcao: { name: 'Direção', type: 'select', options: ['=', '≥', '≤'] },
       limite: { name: 'Data Limite', type: 'date' },
       trimestre: { name: 'Trimestre', type: 'multi_select' },
-      status: { name: 'Status', type: 'status' },
+      status: { name: 'Status', type: 'status', options: ['Não iniciado', 'Em andamento', 'Abortado', 'Atingido', 'Atingido Parcialmente', 'Não atingido'], grava: true },
       area: { name: '🔼 Área', type: 'relation', target: 'areas' },
       projetos: { name: '🤖 Projetos', type: 'relation', target: 'projetos' },
+      ordem: { name: 'Ordem', type: 'number' },
+      // item do trimestre anterior do qual este foi duplicado (criado em 02/10/2026)
+      origem: { name: 'Origem', type: 'relation', target: 'okrs' },
       // Fase 4, item 8 — ainda não existe
       responsavel: { name: 'Responsável pelo OKR', type: 'people', optional: true },
     },

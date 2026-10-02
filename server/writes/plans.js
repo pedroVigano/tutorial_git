@@ -8,8 +8,9 @@
 //
 // Princípios (skill gestao-sprint-notion): nada é apagado; relações são acumulativas — remoções só
 // aparecem como linha própria em "mover de subsistema" e "remover dependência"; apagar meta = Abortado.
-import { BASES, SECOES, has } from '../notion/schema.js';
-import { read, normId, withDashes } from '../notion/props.js';
+import { BASES, SECOES, DIRETORIA, has } from '../notion/schema.js';
+import { read, normId, withDashes, titleOf } from '../notion/props.js';
+import { queryByRelationAny } from '../notion/client.js';
 
 const ID = (x) => withDashes(normId(x));
 const hoje = () => new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
@@ -99,6 +100,13 @@ function historicoOuOrigem({ meta, cur, nxtN, motivo, email }) {
     linhas: [{ base: BASES.metas.titulo, pagina: P, campo: `## ${SECOES.historico}`, atual: '', novo: `+ "${linha}"` }],
   };
 }
+
+// ---------- reunião trimestral ----------
+const GRAUS = ['Objetivo', 'Resultado-Chave', 'KPI'];
+const TRI_RE = /^(\d{4}) - ([1-4])$/;
+const fimTri = (t) => { const m = TRI_RE.exec(t); return new Date(Date.UTC(+m[1], +m[2] * 3, 0)).toISOString().slice(0, 10); };
+const numOuNulo = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+const okrResumo = (it) => [it.grau, it.alvo != null ? `alvo ${it.direcao || ''} ${String(it.alvo).replace('.', ',')} ${it.unidade || ''}`.trim() : null].filter(Boolean).join(' · ');
 
 export const ACOES = {
   // ---------------------------------------------------------------- nova meta
@@ -381,6 +389,109 @@ export const ACOES = {
     avisos.push('R5 (manual): apontar as views do Notion com filtro fixo para a nova sprint — template "Sprint P&D #N" (Trimestre) e view "Sprint Atual" de Tarefas.');
     if (!ops.length) bloqueios.push('Nada a gravar: nenhuma meta, tarefa ou medição selecionada.');
     return { titulo: `Rollover #${n} → #${n + 1}`, linhas, ops, avisos, bloqueios };
+  },
+  // ---------------------------------------------------------------- reunião trimestral (rascunho em lote)
+  // itens: coluna do trimestre planejado, em ordem de árvore. Cada item: {key, grau, pai (key|null), id (página
+  // existente) | origem (item do trimestre revisado a duplicar), titulo, alvo, unidade, direcao, ordem, abortar}.
+  // statusFinal: [{id, status}] do trimestre revisado.
+  async 'okr.trimestre'({ api, D, dados }) {
+    const plan = String(dados.plan || ''); const rev = String(dados.rev || '');
+    if (!TRI_RE.test(plan) || !TRI_RE.test(rev)) throw new PlanError('Trimestre inválido.');
+    const linhas = []; const ops = []; const avisos = []; const bloqueios = [];
+    const okrB = BASES.okrs.titulo; const P = BASES.okrs.props;
+    const itens = (dados.itens || []).map((it) => ({ ...it, id: it.id ? ID(it.id) : null, origem: it.origem ? ID(it.origem) : null }));
+    const byKey = new Map(itens.map((it) => [it.key, it]));
+    const limite = fimTri(plan);
+
+    // páginas lidas do Notion (existentes, origens e pais existentes)
+    const ids = [...new Set(itens.flatMap((it) => [it.id, it.origem]).filter(Boolean))];
+    const pages = new Map((await Promise.all(ids.map((id) => api.retrievePage(id).catch(() => null)))).filter(Boolean).map((p) => [ID(p.id), p]));
+    const relOf = async (page, key) => (await api.relationIds(page, 'okrs', key)).map(ID);
+    const pdArea = Object.values(D.areas || {}).find((a) => a.nome === DIRETORIA)?.id || null;
+
+    // medições dos KPIs de origem (religadas à cópia)
+    const origensKpi = itens.filter((it) => !it.id && !it.abortar && it.grau === 'KPI' && it.origem).map((it) => it.origem);
+    const meds = origensKpi.length ? await queryByRelationAny(api, 'medicoes', 'kpi', origensKpi) : [];
+    const medsDe = (kpiId) => meds.filter((m) => read(m, 'medicoes', 'kpi').some((k) => ID(k) === kpiId));
+
+    const herdado = new Map(); // key → {area, projetos} para filhos novos
+    const ordenados = [...itens].sort((a, b) => GRAUS.indexOf(a.grau) - GRAUS.indexOf(b.grau));
+    for (const it of ordenados) {
+      if (!GRAUS.includes(it.grau)) { bloqueios.push(`Grau inválido: ${it.grau}`); continue; }
+      const titulo = String(it.titulo || '').trim();
+      const alvo = numOuNulo(it.alvo);
+      if (it.alvo != null && it.alvo !== '' && !Number.isFinite(alvo)) { bloqueios.push(`Alvo inválido em "${titulo}".`); continue; }
+      const pai = it.pai ? byKey.get(it.pai) : null;
+      if (it.grau !== 'Objetivo' && !pai) { bloqueios.push(`"${titulo || it.key}" sem item principal no rascunho.`); continue; }
+      const paiRef = pai ? (pai.id || { ref: pai.key }) : null;
+
+      if (it.id) { // ---------- página existente no trimestre planejado
+        const page = pages.get(it.id);
+        if (!page) { bloqueios.push(`Página ${it.id.slice(0, 8)} não encontrada no Notion.`); continue; }
+        const atual = { titulo: titleOf(page), alvo: read(page, 'okrs', 'alvo'), unidade: read(page, 'okrs', 'unidade'), direcao: read(page, 'okrs', 'direcao'), status: read(page, 'okrs', 'status') };
+        herdado.set(it.key, { area: await relOf(page, 'area'), projetos: await relOf(page, 'projetos') });
+        const pg = pag(page, atual.titulo);
+        if (it.abortar) {
+          if (atual.status !== 'Abortado') {
+            ops.push({ op: 'set', base: 'okrs', pageId: it.id, key: 'status', value: 'Abortado', expect: atual.status });
+            linhas.push({ base: okrB, pagina: pg, campo: P.status.name, atual: atual.status || '—', novo: 'Abortado' });
+          }
+          continue;
+        }
+        const muda = (key, novo) => {
+          if (novo === undefined || (novo ?? null) === (atual[key] ?? null)) return;
+          ops.push({ op: 'set', base: 'okrs', pageId: it.id, key, value: novo, expect: atual[key] ?? null });
+          linhas.push({ base: okrB, pagina: pg, campo: P[key].name, atual: atual[key] ?? '—', novo: novo ?? '(vazio)' });
+        };
+        if (titulo) muda('titulo', titulo); else bloqueios.push(`Descrição vazia em ${it.grau}.`);
+        if (it.grau === 'KPI') { muda('alvo', it.alvo === undefined ? undefined : alvo); muda('unidade', it.unidade === undefined ? undefined : (it.unidade || null)); muda('direcao', it.direcao === undefined ? undefined : (it.direcao || null)); }
+        continue;
+      }
+
+      if (it.abortar) continue; // rascunho descartado: nada a criar
+      if (!titulo) { bloqueios.push(`Descrição vazia num ${it.grau} novo.`); continue; }
+      // ---------- página nova (cópia ou item novo)
+      const orig = it.origem ? pages.get(it.origem) : null;
+      if (it.origem && !orig) { bloqueios.push(`Origem ${it.origem.slice(0, 8)} não encontrada no Notion.`); continue; }
+      const base = orig ? { area: await relOf(orig, 'area'), projetos: await relOf(orig, 'projetos') }
+        : herdado.get(it.pai) || { area: pdArea ? [pdArea] : [], projetos: [] };
+      herdado.set(it.key, base);
+      const props = {
+        titulo, grau: it.grau, trimestre: [plan], status: 'Não iniciado', limite,
+        area: base.area, projetos: base.projetos,
+        ...(paiRef ? { pai: [paiRef] } : {}),
+        ...(it.origem ? { origem: [it.origem] } : {}),
+        ...(it.ordem != null && Number.isFinite(Number(it.ordem)) ? { ordem: Number(it.ordem) } : {}),
+        ...(it.grau === 'KPI' ? { alvo, unidade: it.unidade || null, direcao: it.direcao || null } : {}),
+      };
+      const where = it.origem
+        ? [{ key: 'origem', value: it.origem }, { key: 'trimestre', value: plan }]
+        : [{ key: 'titulo', value: titulo }, { key: 'trimestre', value: plan }, ...(paiRef ? [{ key: 'pai', value: paiRef }] : [])];
+      ops.push({ op: 'create', base: 'okrs', ref: it.key, props, dedupe: { where } });
+      const nomePai = pai ? `${pai.titulo || pai.key}`.slice(0, 50) : '—';
+      linhas.push({ base: okrB, pagina: pag(null, titulo), campo: 'criar página', atual: it.origem ? `cópia de "${titleOf(orig).slice(0, 60)}"` : 'novo', novo: `${okrResumo({ ...it, alvo })} · ${plan} · em "${nomePai}" · limite ${limite.split('-').reverse().join('/')}` });
+      if (it.grau === 'KPI' && !base.area.length) avisos.push(`"${titulo}" sem Área.`);
+      if (it.grau === 'KPI' && (alvo == null || !it.direcao)) avisos.push(`KPI "${titulo.slice(0, 60)}" sem alvo ou direção.`);
+      if (it.grau === 'KPI' && orig && (it.unidade || null) !== (read(orig, 'okrs', 'unidade') || null)) avisos.push(`KPI "${titulo.slice(0, 60)}": unidade mudou (${read(orig, 'okrs', 'unidade') || '—'} → ${it.unidade || '—'}); as medições religadas estão na unidade antiga.`);
+      if (it.grau === 'KPI' && orig) {
+        const ms = medsDe(it.origem);
+        for (const m of ms) ops.push({ op: 'relAdd', base: 'medicoes', pageId: m.id, key: 'kpi', ids: [{ ref: it.key }] });
+        if (ms.length) linhas.push({ base: BASES.medicoes.titulo, pagina: pag(null, `${ms.length} medição(ões) de "${titleOf(orig).slice(0, 50)}"`), campo: `${BASES.medicoes.props.kpi.name} (adicionar)`, atual: 'KPI original', novo: '+ cópia (a série continua)' });
+      }
+    }
+
+    // status final do trimestre revisado
+    const revOkr = new Map([...(D.objetivos || []), ...(D.krs || []), ...(D.kpis || [])].map((x) => [x.id, x]));
+    for (const sf of dados.statusFinal || []) {
+      const id = ID(sf.id); const x = revOkr.get(id);
+      if (!P.status.options.includes(sf.status)) { bloqueios.push(`Status inválido: ${sf.status}`); continue; }
+      if (!x) { bloqueios.push(`Item ${id.slice(0, 8)} não está em ${rev}.`); continue; }
+      if (x.status === sf.status) continue;
+      ops.push({ op: 'set', base: 'okrs', pageId: id, key: 'status', value: sf.status, expect: x.status ?? null });
+      linhas.push({ base: okrB, pagina: { id, titulo: `${x.label} · ${x.titulo}`, url: x.url }, campo: P.status.name, atual: x.status || '—', novo: sf.status });
+    }
+    if (!ops.length && !bloqueios.length) bloqueios.push('Nada a gravar: o rascunho não muda nada no Notion.');
+    return { titulo: `Reunião trimestral: ${rev} → ${plan}`, linhas, ops, avisos: [...new Set(avisos)], bloqueios };
   },
 };
 

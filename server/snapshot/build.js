@@ -34,7 +34,9 @@ const curto = (titulo, max = 28) => {
 };
 
 // Status do Notion e trimestres (multi-select) de um item de OKR.
-const okrMeta = (p) => ({ status: read(p, 'okrs', 'status') || null, trimestres: read(p, 'okrs', 'trimestre') });
+const okrMeta = (p) => ({ status: read(p, 'okrs', 'status') || null, trimestres: read(p, 'okrs', 'trimestre'), ordem: read(p, 'okrs', 'ordem'), origem: read(p, 'okrs', 'origem').map(ID) });
+// Ordem do Notion (vazia vai para o fim); empate pelo critério anterior.
+const porOrdem = (a, b) => (read(a, 'okrs', 'ordem') ?? Infinity) - (read(b, 'okrs', 'ordem') ?? Infinity) || 0;
 
 export function buildSnapshot(raw, { sprintN } = {}) {
   const users = raw.users || {};
@@ -126,10 +128,10 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     const a = rel(p, 'okrs', 'area');
     return a.some((id) => isPD(id));
   });
-  objPages.sort((a, b) => {
+  objPages.sort((a, b) => porOrdem(a, b) || (() => {
     const la = read(a, 'okrs', 'limite')?.start || '9999'; const lb = read(b, 'okrs', 'limite')?.start || '9999';
     return la.localeCompare(lb) || a.created_time.localeCompare(b.created_time);
-  });
+  })());
   const objetivos = objPages.map((p, i) => {
     const titulo = titleOf(p);
     const linked = rel(p, 'okrs', 'projetos');
@@ -153,7 +155,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     list.push(p); krByObj.set(obj, list);
   }
   for (const o of objetivos) {
-    const list = (krByObj.get(o.id) || []).sort((a, b) => a.created_time.localeCompare(b.created_time));
+    const list = (krByObj.get(o.id) || []).sort((a, b) => porOrdem(a, b) || a.created_time.localeCompare(b.created_time));
     list.forEach((p, j) => krs.push({
       id: ID(p.id), label: `K${o.label.slice(1)}${String.fromCharCode(97 + j)}`, obj: o.id, titulo: titleOf(p),
       limite: read(p, 'okrs', 'limite')?.start?.slice(0, 10) || null, url: p.url, ...okrMeta(p),
@@ -176,11 +178,14 @@ export function buildSnapshot(raw, { sprintN } = {}) {
       medByKpi.set(kpi, e);
     }
   }
+  const kpiN = new Map(); // numeração dos KPIs dentro de cada KR
+  const krPos = new Map(krs.map((k, i) => [k.id, i]));
   const kpis = raw.kpis
     .map((p) => ({ p, kr: rel(p, 'okrs', 'pai').find((id) => krIds.has(id)) }))
     .filter((x) => x.kr)
-    .sort((a, b) => a.p.created_time.localeCompare(b.p.created_time))
-    .map(({ p, kr }, i) => {
+    .sort((a, b) => krPos.get(a.kr) - krPos.get(b.kr) || porOrdem(a.p, b.p) || a.p.created_time.localeCompare(b.p.created_time))
+    .map(({ p, kr }) => {
+      const i = (kpiN.get(kr) || 0); kpiN.set(kr, i + 1);
       const med = medByKpi.get(ID(p.id)) || { serie: {}, medicoes: {} };
       return {
         id: ID(p.id), label: `${krById.get(kr).label}.${i + 1}`, kr, titulo: titleOf(p), url: p.url,

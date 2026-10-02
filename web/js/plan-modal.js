@@ -17,12 +17,13 @@ function planTable(p) {
   return `<div class="twrap plan-t"><table class="t">${head}${rows}</table></div>`;
 }
 
-export async function requestWrite(acao, dados, { onDone } = {}) {
+// tri: trimestre do snapshot que o plano usa (padrão: o da tela)
+export async function requestWrite(acao, dados, { onDone, tri } = {}) {
   if (!S.meta?.pode_gravar) { toast('Somente leitura: você não está na lista de quem grava no Notion.'); return; }
   const body = openModal('<h3>Plano de escrita</h3><p class="hint">Montando o plano com os valores atuais do Notion…</p>', { wide: true });
   let p;
   try {
-    p = await api.plan(acao, dados, { sprint: state.sprint, tri: state.tri });
+    p = await api.plan(acao, dados, { sprint: state.sprint, tri: tri ?? state.tri });
   } catch (e) {
     body.innerHTML = `<h3>Plano de escrita</h3><p class="plan-bloq">Não foi possível montar o plano: ${esc(e.message)}</p><div class="btnrow"><button type="button" class="btn" id="p-close">Fechar</button></div>`;
     body.querySelector('#p-close').onclick = closeModal;

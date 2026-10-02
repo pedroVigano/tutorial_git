@@ -40,14 +40,26 @@ Navegador ──IAP (login Google)──► Cloud Run · Node 22 / Fastify ─�
 | → Próxima sprint | `🏃 Sprint` (+ #N+1, cria a sprint se preciso) e linha em `## Histórico de sprints` com o motivo |
 | ＋ registrar medição (coluna OKR ou R4 do rollover) | linha em 📈 Evolução de KPIs (`<KPI> — Sprint #NN`, KPI, Sprint, Valor, Data) ou troca do valor existente |
 | Rollover R1–R6 | cria a #N+1; revincula metas e tarefas marcadas; histórico (ou `Sprint_de_origem`, quando existir); medições; no fim, #N → Concluído e #N+1 → Em andamento |
+| Trimestral → Gravar no Notion | páginas novas em 🎯 OKRs Táticos (cópias com `Origem`, KRs/KPIs novos), `KPI` (+) nas medições religadas, edições e `Status` (Abortado / status final) |
 | Reunião & IA | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
 
 Outros recursos:
-- **Trimestral** (aba ou `?pagina=trimestral`): reunião trimestral de P&D, **só leitura**.
-  - Revisão do trimestre: Objetivo › KR › KPI com série por sprint, status pela regra × status no Notion.
-  - Ao lado, o que já está no trimestre planejado.
-  - Marca o que duplicar (marcar um KPI marca o KR e o objetivo), status final, ajustes e OKRs novos. A seleção fica no navegador.
-  - Gera o "Pedido ao Claude — reunião trimestral" (copiar ou baixar .md): o Claude mostra o plano de escrita e só grava após conferência. A página não grava no Notion.
+- **Trimestral** (aba ou `?pagina=trimestral`): reunião trimestral de P&D. Duas colunas pareadas linha a linha: à esquerda o trimestre revisado, à direita o planejado.
+  - **Esquerda:** Objetivo › KR › KPI, status pela regra × status no Notion e status final a gravar.
+  - **Direita, ações:**
+    - "duplicar objetivo" copia o objetivo com KRs e KPIs, que aparecem ao lado;
+    - os textos são editáveis;
+    - o alvo do KPI se ajusta arrastando a linha no lado direito do gráfico ou digitando;
+    - "abortar" deixa o espaço vazio para manter o pareamento;
+    - dá para criar KR, KPI ou objetivo novos.
+  - **Gráfico:** vai da 1ª sprint do revisado à última do planejado. As sprints futuras são projetadas a cada 14 dias e marcadas com `*`.
+  - **Rascunho:** fica no navegador até "Gravar no Notion", que monta um plano único (`okr.trimestre`) com:
+    - páginas novas com `Trimestre` = planejado, `Origem` = item copiado e Data Limite = fim do trimestre;
+    - medições do KPI original religadas à cópia;
+    - edições e "abortar" (`Status = Abortado`) nos itens que já existem;
+    - status final do trimestre revisado.
+  - **Depois de gravar:** o pareamento é refeito pelo campo `Origem`. Refazer o mesmo rascunho não duplica páginas.
+- **Ordem dos OKRs:** objetivos, KRs e KPIs seguem a coluna `Ordem` do Notion, com os vazios no fim. Vale para o Board e para a Trimestral. Os KPIs são numerados dentro de cada KR.
 - **Modo TV** (`?modo=tv`): tela grande, só leitura.
 - **Tema:** claro, escuro ou automático.
 - **Filtro por equipe:** "Só P&D" esconde as metas de outras diretorias.
