@@ -74,12 +74,16 @@ body[data-page="trimestral"] label.ctl:has(#sel-tri){display:none}
 .tq-bar .spacer{flex:1}
 .tq-bar .btn[disabled]{opacity:.5;cursor:not-allowed}
 .tq-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:4px 0 8px}
-.tq-grp{background:var(--surface);border:1px solid var(--line-2);border-left:7px solid var(--accent);border-radius:12px;margin-bottom:32px;padding:0 12px 12px;box-shadow:var(--shadow)}
+.tq-grp{background:var(--surface);border:1px solid var(--line-2);border-left:7px solid var(--accent);border-radius:12px;margin-bottom:28px;padding:0 12px 12px;box-shadow:var(--shadow)}
 .tq-grp>summary{cursor:pointer;display:flex;justify-content:space-between;gap:12px;align-items:center;margin:0 -12px;padding:10px 12px;font-weight:700;font-size:15px;background:var(--accent-soft);color:var(--ink);border-radius:0 11px 0 0;position:sticky;top:var(--tq-bar,52px);z-index:4;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
 .tq-grp:not([open])>summary{border-radius:0 11px 11px 0;border-bottom:0}
 .tq-grp>summary>span:first-child{display:flex;gap:10px;align-items:center}
 /* KR: cartão dentro do objetivo, englobando os KPIs */
-.tq-row.kr{margin-top:14px;border:1px solid var(--line-2);border-left:5px solid color-mix(in srgb,var(--accent) 55%,var(--surface));border-radius:10px;padding:0 10px 4px;background:color-mix(in srgb,var(--surface-2) 55%,var(--surface))}
+.tq-row.kr{margin-top:18px;border:1px solid var(--line-2);border-left:5px solid color-mix(in srgb,var(--accent) 55%,var(--surface));border-radius:10px;padding:0 10px 4px;background:color-mix(in srgb,var(--surface-2) 55%,var(--surface))}
+.tq-krh{position:sticky;top:calc(var(--tq-bar,52px) + var(--tq-obj,44px));z-index:3;display:flex;gap:10px;align-items:center;margin:0 -10px;padding:7px 10px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));border-top:3px solid color-mix(in srgb,var(--accent) 60%,var(--surface));border-bottom:1px solid var(--line-2);border-radius:8px 9px 0 0;font-size:12.5px}
+.tq-krh .t{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tq-krh .hint{white-space:nowrap}
+hr.tq-div{border:0;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 15%,transparent));margin:4px 0 28px}
 .tq-row.kr>.tq-pair{border-bottom:1px solid var(--line-2)}
 /* KPI: linhas do KR, separadas por traço */
 .tq-row.kpi{border-top:1px dashed var(--line-2);padding-left:10px;border-left:2px solid var(--line)}

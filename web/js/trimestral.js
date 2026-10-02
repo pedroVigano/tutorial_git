@@ -297,7 +297,14 @@ function q4Cell(row, grau) {
 }
 
 const kpiRow = (M, r) => `<div class="tq-row kpi"><div class="tq-pair">${q3Cell(M, r.q3, 'KPI')}${q4Cell(r, 'KPI')}</div>${chart(r, M)}</div>`;
-const krRow = (M, r) => `<div class="tq-row kr"><div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k) => kpiRow(M, k)).join('')}</div>`;
+// faixa fixa do KR: fica sob o cabeçalho do objetivo enquanto se rola pelos KPIs dele
+function krFaixa(r) {
+  const x = r.q3 || r.q4; const titulo = r.q3 ? r.q3.titulo : (r.q4?.v.titulo || 'KR novo');
+  const label = r.q3?.label || r.q4?.label || (r.q4?.kind === 'novo' ? 'novo' : '');
+  const lado = !r.q4 ? 'sem cópia' : r.q4.abortado ? 'abortado' : r.q4.kind === 'exist' ? 'no Notion' : 'a criar';
+  return x ? `<div class="tq-krh">${lbl(label, 'Resultado-Chave')}<span class="t">${esc(titulo)}</span><span class="hint">${r.kpis.length} KPIs · ${esc(triLabel(pg.plan))}: ${lado}</span></div>` : '';
+}
+const krRow = (M, r) => `<div class="tq-row kr">${krFaixa(r)}<div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k) => kpiRow(M, k)).join('')}</div>`;
 function grupo(M, g) {
   const titulo = g.q3 ? `${g.q3.label} · ${g.q3.titulo}` : `${triLabel(pg.plan)} · ${g.q4?.v.titulo || 'objetivo novo'}`;
   return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${lbl(g.q3?.label || g.q4?.label || 'novo', 'Objetivo')} ${esc((g.q3 ? g.q3.titulo : titulo).slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r) => krRow(M, r)).join('')}</details>`;
@@ -332,9 +339,10 @@ function paint() {
     return;
   }
   const y = window.scrollY;
-  el.innerHTML = `${head}${barra(M)}<div class="tq-cols"><div>${esc(triLabel(pg.rev))} · revisão</div><div>${esc(triLabel(pg.plan))} · planejamento</div></div>${M.grupos.map((g) => grupo(M, g)).join('') || '<div class="empty">Nenhum objetivo de P&amp;D nos dois trimestres.</div>'}`;
+  el.innerHTML = `${head}${barra(M)}<div class="tq-cols"><div>${esc(triLabel(pg.rev))} · revisão</div><div>${esc(triLabel(pg.plan))} · planejamento</div></div>${M.grupos.map((g) => grupo(M, g)).join('<hr class="tq-div">') || '<div class="empty">Nenhum objetivo de P&amp;D nos dois trimestres.</div>'}`;
   window.scrollTo(0, y);
   const bar = el.querySelector('.tq-bar'); if (bar) el.style.setProperty('--tq-bar', `${bar.offsetHeight}px`);
+  const sum = el.querySelector('.tq-grp>summary'); if (sum) el.style.setProperty('--tq-obj', `${sum.offsetHeight}px`);
   bindHead(el); bind(el, M);
 }
 
