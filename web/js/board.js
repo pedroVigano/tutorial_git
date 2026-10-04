@@ -69,36 +69,44 @@ function renderObjbar() {
 }
 
 // ---------- coluna OKR ----------
-// xs: sprints do eixo (padrão: as do trimestre carregado no board)
-export function spark(k, xs = S.I.sprintNums) {
-  const W = 300; const H = 84; const pl = 14; const pr = 10; const pt = 18; const pb = 20;
+// Um gráfico por KR com todos os KPIs juntos. Cada KPI tem a sua própria escala (unidades diferentes),
+// então a altura de cada linha só compara a trajetória dela com o próprio alvo; os valores reais ficam
+// no tooltip dos pontos e na legenda (placar de cada KPI logo abaixo).
+const N_SERIES = 8; // --s1..--s8 em app-real.css; a partir daí cinza, nunca cor repetida
+const serieCor = (i) => (i < N_SERIES ? `var(--s${i + 1})` : 'var(--neutral)');
+const comUnidade = (k, v) => `${fmt(v)}${k.unidade ? ` ${esc(k.unidade)}` : ''}`;
+
+function krChart(ks) {
+  if (!ks.length) return '';
+  const xs = S.I.sprintNums;
+  const W = 320; const H = 150; const pl = 16; const pr = 16; const pt = 12; const pb = 22;
   const x = (i) => (xs.length > 1 ? pl + (i * (W - pl - pr)) / (xs.length - 1) : W / 2);
-  const vals = xs.map((s) => k.serie[String(s)]);
-  const nums = vals.filter((v) => v != null); if (k.alvo != null) nums.push(k.alvo);
-  let lo = Math.min(0, ...nums); let hi = Math.max(...nums, 1); if (hi === lo) hi = lo + 1;
-  const pad = (hi - lo) * 0.18; lo -= pad * 0.4; hi += pad;
-  const y = (v) => H - pb - ((v - lo) / (hi - lo)) * (H - pt - pb);
-  const last = kpiLast(k); const col = stColor(kpiStatus(k).cls);
-  let s = `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Série do KPI por sprint">`;
-  s += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${H - pb}" y2="${H - pb}"/>`;
-  if (k.alvo != null) { const ty = y(k.alvo); s += `<line class="tgt" x1="${pl}" x2="${W - pr}" y1="${ty}" y2="${ty}"/><text class="tl" x="${W - pr}" y="${ty - 4}" text-anchor="end">alvo ${esc(k.dir || '')} ${fmt(k.alvo)}${k.unidade ? ` ${esc(k.unidade)}` : ''}</text>`; }
-  const pts = xs.map((sp, i) => (vals[i] != null ? [x(i), y(vals[i])] : null)).filter(Boolean);
-  if (pts.length > 1) s += `<polyline class="ln" points="${pts.map((p) => p.join(',')).join(' ')}"/>`;
-  xs.forEach((sp, i) => {
-    const isCur = last && sp === last.s;
-    if (vals[i] != null) {
-      s += `<circle class="pt" cx="${x(i)}" cy="${y(vals[i])}" r="${isCur ? 6 : 4.5}" fill="${col}"><title>#${sp}: ${fmt(vals[i])}</title></circle>`;
-      if (isCur) {
-        const vy = y(vals[i]);
-        const above = k.alvo != null && y(k.alvo) > vy - 14 && y(k.alvo) < vy + 2;
-        const ly = above ? vy + 16 : vy - 10;
-        const anchor = i === xs.length - 1 ? 'end' : 'middle';
-        s += `<text class="vl" x="${x(i)}" y="${Math.min(H - pb - 2, Math.max(11, ly))}" text-anchor="${anchor}">${fmt(vals[i])}</text>`;
-      }
-    } else s += `<circle class="miss" cx="${x(i)}" cy="${H - pb}" r="3"/>`;
-    s += `<text class="sp ${isCur ? 'cur' : ''}" x="${x(i)}" y="${H - 5}" text-anchor="middle">#${sp}</text>`;
+  const base = H - pb;
+  const scale = (k) => {
+    const nums = xs.map((s) => k.serie[String(s)]).filter((v) => v != null); if (k.alvo != null) nums.push(k.alvo);
+    let lo = Math.min(0, ...nums); let hi = Math.max(...nums, 1); if (hi === lo) hi = lo + 1;
+    const pad = (hi - lo) * 0.18; lo -= pad * 0.4; hi += pad;
+    return (v) => base - ((v - lo) / (hi - lo)) * (base - pt);
+  };
+  let s = `<svg class="kchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Série de ${ks.length} KPI(s) por sprint, cada um na sua escala">`;
+  s += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${base}" y2="${base}"/><line class="grid soft" x1="${pl}" x2="${W - pr}" y1="${(base + pt) / 2}" y2="${(base + pt) / 2}"/>`;
+  const ys = ks.map(scale);
+  ks.forEach((k, j) => { // alvos por baixo das linhas
+    if (k.alvo == null) return;
+    const ty = ys[j](k.alvo);
+    s += `<line class="tgt" stroke="${serieCor(j)}" x1="${pl}" x2="${W - pr}" y1="${ty}" y2="${ty}"><title>${esc(k.titulo)} — alvo ${esc(k.dir || '')} ${comUnidade(k, k.alvo)}</title></line>`;
   });
-  return `${s}</svg>`;
+  ks.forEach((k, j) => {
+    const col = serieCor(j); const last = kpiLast(k);
+    const pts = xs.map((sp, i) => (k.serie[String(sp)] != null ? { sp, i, v: k.serie[String(sp)], y: ys[j](k.serie[String(sp)]) } : null)).filter(Boolean);
+    if (pts.length > 1) s += `<polyline class="ln" stroke="${col}" points="${pts.map((p) => `${x(p.i)},${p.y}`).join(' ')}"/>`;
+    pts.forEach((p) => {
+      const cur = last && p.sp === last.s;
+      s += `<g class="pt"><title>${esc(k.titulo)} · #${p.sp}: ${comUnidade(k, p.v)}</title><circle class="hit" cx="${x(p.i)}" cy="${p.y}" r="9"/><circle cx="${x(p.i)}" cy="${p.y}" r="${cur ? 5.5 : 4}" fill="${col}"/></g>`;
+    });
+  });
+  xs.forEach((sp, i) => { s += `<text class="sp ${sp === S.D.sprint ? 'cur' : ''}" x="${x(i)}" y="${H - 6}" text-anchor="middle">#${sp}</text>`; });
+  return `${s}</svg><div class="kchart-note">cada KPI na sua própria escala · tracejado = alvo</div>`;
 }
 
 export function scoreHTML(k) {
@@ -131,7 +139,8 @@ function renderOKR() {
     const st = krStatus(I, kr); const ks = I.kpisOf(kr.id);
     const det = document.createElement('details');
     det.className = 'kr'; det.open = true;
-    det.innerHTML = `<summary><div><span class="eyebrow">${kr.label}</span><div class="t">${esc(kr.titulo)}</div></div><div class="s"><span class="pill ${st.cls}">${st.txt}</span><span class="pill">${kr.limite ? dm(kr.limite) : 'sem data'}</span></div></summary><div class="body">${ks.map((k) => `<div class="kpi"><div class="n">${esc(k.titulo)}<small>${k.limite ? `até ${dm(k.limite)} · ` : ''}<a href="${esc(k.url)}" target="_blank" rel="noopener">Notion ↗</a>${canWrite() ? ` · <button type="button" class="linkbtn" data-kpi="${k.id}">＋ registrar medição</button>` : ''}</small></div><div class="body">${scoreHTML(k)}${spark(k)}</div></div>`).join('') || '<div class="empty">Sem KPIs cadastrados.</div>'}</div>`;
+    const kpiRow = (k, j) => `<div class="kpi" style="--sc:${serieCor(j)}"><div class="n"><i class="swk"></i>${esc(k.titulo)}<small>${k.limite ? `até ${dm(k.limite)} · ` : ''}<a href="${esc(k.url)}" target="_blank" rel="noopener">Notion ↗</a>${canWrite() ? ` · <button type="button" class="linkbtn" data-kpi="${k.id}">＋ registrar medição</button>` : ''}</small></div><div class="body">${scoreHTML(k)}</div></div>`;
+    det.innerHTML = `<summary><div><span class="eyebrow">${kr.label}</span><div class="t">${esc(kr.titulo)}</div></div><div class="s"><span class="pill ${st.cls}">${st.txt}</span><span class="pill">${kr.limite ? dm(kr.limite) : 'sem data'}</span></div></summary><div class="body">${krChart(ks)}${ks.map(kpiRow).join('') || '<div class="empty">Sem KPIs cadastrados.</div>'}</div>`;
     el.appendChild(det);
   });
   if (!I.krsOf(o.id).length) el.insertAdjacentHTML('beforeend', '<div class="empty">Objetivo sem resultados-chave cadastrados.</div>');

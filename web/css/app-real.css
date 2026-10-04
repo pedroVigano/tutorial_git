@@ -130,3 +130,19 @@ textarea.tq-txt{width:100%;resize:vertical;font:inherit;font-size:12.5px;font-we
 .tq-tgt4.drag{cursor:ns-resize}
 .tq-tgt4.arrastando .h{r:10}
 @media (max-width:900px){.tq-pair,.tq-cols{grid-template-columns:1fr}}
+/* ---------- gráfico do KR: uma cor por KPI (paleta categórica validada nos dois temas) ---------- */
+:root{ --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948; }
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; } }
+:root[data-theme="dark"]{ --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; }
+.kchart{display:block;width:100%;height:auto;aspect-ratio:320/150;max-width:100%;background:var(--surface-2);border-radius:8px;margin-top:10px}
+.kchart text{font-family:var(--mono);font-size:11px;fill:var(--ink-2);font-weight:500}
+.kchart text.cur{fill:var(--ink);font-weight:700}
+.kchart .grid{stroke:var(--line);stroke-width:1}
+.kchart .grid.soft{stroke-dasharray:2 4;opacity:.7}
+.kchart .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.kchart .tgt{stroke-width:1.25;stroke-dasharray:4 3;opacity:.75}
+.kchart .pt circle:not(.hit){stroke:var(--surface-2);stroke-width:2}
+.kchart .pt .hit{fill:transparent}
+.kchart .pt:hover circle:not(.hit){stroke:var(--ink)}
+.kchart-note{font-family:var(--mono);font-size:10px;color:var(--muted);margin:4px 0 2px}
+.kpi .n .swk{display:inline-block;width:16px;height:3px;border-radius:2px;background:var(--sc);vertical-align:middle;margin-right:7px}

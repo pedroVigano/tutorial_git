@@ -81,8 +81,10 @@ export function demoState(D = readMockData()) {
       projetos: proj, limite: o.limite, status: 'Em andamento',
     }, { icon: o.icone, url: o.url });
   }
+  const ordemKr = {};
   for (const k of D.krs) {
-    add('okrs', k.id, { titulo: k.titulo, grau: 'Resultado-Chave', pai: [objId(k.obj)], trimestre: [D.trimestre.id], limite: k.limite, status: 'Em andamento' }, { url: k.url });
+    ordemKr[k.obj] = (ordemKr[k.obj] || 0) + 1;
+    add('okrs', k.id, { titulo: k.titulo, grau: 'Resultado-Chave', pai: [objId(k.obj)], trimestre: [D.trimestre.id], limite: k.limite, ordem: ordemKr[k.obj], status: 'Em andamento' }, { url: k.url });
   }
   for (const k of D.kpis) {
     add('okrs', k.id, { titulo: k.titulo, grau: 'KPI', pai: [objId(k.kr)], alvo: k.alvo, unidade: k.unidade, direcao: k.dir, limite: k.limite, trimestre: [D.trimestre.id], status: 'Em andamento' });
