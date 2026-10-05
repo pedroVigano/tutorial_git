@@ -28,9 +28,13 @@ PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNum
    Use uma conexão exclusiva do dashboard: o limite de ~3 req/s do Notion é por token.
 2. **Configuration:** capacidades
    - **Conteúdo:** ler, atualizar e inserir.
-   - **Usuários:** ler informações *sem* e-mail (para mostrar o nome dos responsáveis).
-3. **Content access → Edit access:** dê acesso às 9 bases abaixo.
-   🏁 Metas da Sprint · 🎯 OKRs Táticos · 📈 Evolução de KPIs · 🤖 Projetos, Sistemas e Subsistemas · 🏃 Sprints · ✅ Lista de Tarefas · 🔼 Diretorias e Áreas Funcionais · 📜 Desejos e Expectativas · 📋 Requisitos
+   - **Usuários:** ler informações **com e-mail** ("Read user information including email addresses").
+     - Serve para mostrar o nome dos responsáveis.
+     - Serve também para a aba **Eu** casar o login Google com a pessoa do Notion.
+     - Sem e-mail, a aba Eu pede "Ver como".
+3. **Content access → Edit access:** dê acesso às 10 bases abaixo.
+   🏁 Metas da Sprint · 🎯 OKRs Táticos · 📈 Evolução de KPIs · 🤖 Projetos, Sistemas e Subsistemas · 🏃 Sprints · ✅ Lista de Tarefas · 🔼 Diretorias e Áreas Funcionais · 📜 Desejos e Expectativas · 📋 Requisitos · 👨‍👩‍👦‍👦 Reuniões
+   - **👨‍👩‍👦‍👦 Reuniões** é opcional: sem acesso a ela, o schema check dá AVISO e só a gravação de atas fica desligada.
    - Dar acesso à página **BSV Robotics** também funciona, porque o acesso vale para tudo que está dentro dela. Em compensação, o token passa a poder editar qualquer página da BSV.
    - Páginas com acesso restrito, ou que ficam fora de BSV Robotics, precisam ser adicionadas uma a uma.
 4. Copie o token (`ntn_…`, 50 caracteres). Guarde-o só no `.env` local e no Secret Manager, nunca em chat ou e-mail. Depois, teste localmente:
@@ -79,6 +83,20 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
   --role=roles/run.builder
 ```
 
+### IA (Gemini no Vertex AI) — gravação de reuniões, atas, "Aprimorar" e "Documentar"
+
+```bash
+gcloud services enable aiplatform.googleapis.com
+gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$SA --role=roles/aiplatform.user
+```
+
+- **Credenciais:** o app usa as credenciais da própria conta de serviço; não há chave de API.
+- **Áudio:** vai em trechos de ~5 min para o Gemini, só para transcrever, e **não é guardado**. A transcrição vai para a ata no Notion depois da revisão.
+- **Modelos:** os padrões são `gemini-2.5-flash` (transcrição) e `gemini-2.5-pro` (ata e revisão), na localização `global`.
+  - Confira no Model Garden do projeto que eles estão disponíveis.
+  - Se quiser trocar, use `VERTEX_MODEL_TRANSCRICAO`, `VERTEX_MODEL_REVISAO` e `VERTEX_LOCATION`.
+- **Desligar:** `IA_MODE=off` desliga a IA; o painel Reunião continua com o prompt para o Claude.
+
 ## 3. Deploy
 
 Na raiz do repositório, no branch com o código (o Cloud Build usa o `Dockerfile`). Na primeira vez, o gcloud pergunta se pode criar o repositório `cloud-run-source-deploy` no Artifact Registry; responda **Y**.
@@ -88,7 +106,7 @@ gcloud run deploy $SERVICE --source . --region $REGION \
   --service-account $SA \
   --no-allow-unauthenticated --iap \
   --min-instances 1 --max-instances 1 --cpu-boost --timeout 900 \
-  --set-env-vars AUTH_MODE=iap,NOTION_MODE=live \
+  --set-env-vars AUTH_MODE=iap,NOTION_MODE=live,IA_MODE=vertex,VERTEX_PROJECT=$PROJECT_ID \
   --set-secrets NOTION_TOKEN=notion-token:latest,EDITOR_EMAILS=editor-emails:latest
 ```
 

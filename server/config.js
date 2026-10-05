@@ -16,5 +16,12 @@ export function loadConfig(env = process.env) {
     cacheTtlMs: Number(env.CACHE_TTL_SECONDS || 120) * 1000,
     notionRatePerSec: Number(env.NOTION_RATE_PER_SEC || 3),
     logLevel: env.LOG_LEVEL || 'info',
+    // IA (Gemini no Vertex AI): vertex | fake (respostas fixas, padrão no modo demonstração) | off
+    iaMode: env.IA_MODE || ((env.NOTION_MODE || 'live') === 'fixture' ? 'fake' : 'vertex'),
+    vertexProject: env.VERTEX_PROJECT || env.GOOGLE_CLOUD_PROJECT || '',
+    vertexLocation: env.VERTEX_LOCATION || 'global',
+    vertexModelTranscricao: env.VERTEX_MODEL_TRANSCRICAO || 'gemini-2.5-flash',
+    vertexModelRevisao: env.VERTEX_MODEL_REVISAO || 'gemini-2.5-pro',
+    iaLimitePor10Min: Number(env.IA_LIMITE_10MIN || 60),
   };
 }

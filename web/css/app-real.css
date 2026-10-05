@@ -383,3 +383,21 @@ button.op-mt:hover{color:var(--accent-ink);text-decoration:underline}
 .top{gap:10px}
 .nav button{padding:6px 10px}
 @media (max-width:1500px){.brand .sub{display:none}.ctl{font-size:11px}}
+
+/* ---------- IA: gravação, sugestões, documentar ---------- */
+i.rec{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--crit);vertical-align:middle}
+#reuniao-btn.gravando{border-color:var(--crit);color:var(--crit)}
+#reuniao-btn.gravando i.rec{animation:pisca 1.2s infinite}
+@keyframes pisca{50%{opacity:.25}}
+.gv{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.gv #gv-ctl{display:inline-flex;gap:6px}
+.rp-campos{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.rp-claude>summary{cursor:pointer;font-size:12px}
+.rv-sug.edit{background:color-mix(in srgb,var(--cyan-role) 70%,var(--surface))}
+.rv-sug-d{font-size:11px;margin:4px 0;word-break:break-word}
+.rv-sug-d code{font-family:var(--mono);font-size:10.5px}
+.rv-sug .btnrow{margin-top:5px}
+.ldoc{float:right;font-size:12px;opacity:.55;padding:0 2px}
+.ldoc:hover{opacity:1}
+@media (max-width:700px){.rp-campos{grid-template-columns:1fr 1fr}}
+.rv-arq td.del.neutro{background:transparent;color:var(--muted);font-style:italic}

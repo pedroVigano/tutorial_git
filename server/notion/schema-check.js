@@ -10,6 +10,7 @@ export async function checkSchema(api) {
 
   for (const [base, b] of Object.entries(BASES)) {
     resolution[base] = {};
+    const ERRO = b.opcional ? 'AVISO' : 'ERRO'; // base opcional: o problema só desliga o recurso dela
     let ds;
     try {
       ds = await api.retrieveDataSource(base);
@@ -17,7 +18,7 @@ export async function checkSchema(api) {
       const why = e.status === 404 || e.code === 'object_not_found'
         ? 'base não encontrada — a integração do Notion está conectada a ela?'
         : `erro ao ler a base: ${e.message}`;
-      push(base, '*', 'ERRO', `${b.titulo}: ${why}`);
+      push(base, '*', ERRO, `${b.titulo}: ${why}${b.opcional ? ' (recurso desligado; o resto do dashboard segue)' : ''}`);
       for (const key of Object.keys(b.props)) resolution[base][key] = { missing: true };
       continue;
     }
@@ -30,20 +31,21 @@ export async function checkSchema(api) {
         if (s.optional) {
           push(base, key, 'AVISO', `"${s.name}" ainda não existe (Fase 4) — o dashboard segue sem ele`);
         } else {
-          push(base, key, 'ERRO', `campo "${s.name}" não encontrado em ${b.titulo}`);
+          push(base, key, ERRO, `campo "${s.name}" não encontrado em ${b.titulo}`);
         }
         resolution[base][key] = { missing: true };
         continue;
       }
       resolution[base][key] = { name: cfg.name, id: cfg.id, missing: false };
       if (cfg.type !== s.type) {
-        push(base, key, 'ERRO', `"${cfg.name}" é do tipo ${cfg.type}, esperado ${s.type}`);
+        push(base, key, ERRO, `"${cfg.name}" é do tipo ${cfg.type}, esperado ${s.type}`);
+        if (b.opcional) resolution[base][key] = { missing: true };
         continue;
       }
       if (s.type === 'relation' && s.target) {
         const alvo = cfg.relation?.data_source_id;
         if (alvo && normId(alvo) !== normId(BASES[s.target].ds)) {
-          push(base, key, 'ERRO', `"${cfg.name}" aponta para outra base (${alvo}), esperado ${BASES[s.target].titulo}`);
+          push(base, key, ERRO, `"${cfg.name}" aponta para outra base (${alvo}), esperado ${BASES[s.target].titulo}`);
           continue;
         }
       }
@@ -51,7 +53,7 @@ export async function checkSchema(api) {
         const existentes = new Set((cfg[cfg.type]?.options || []).map((o) => o.name));
         const faltando = s.options.filter((o) => !existentes.has(o) && !(s.aliases?.[o] && existentes.has(s.aliases[o])));
         if (faltando.length) {
-          push(base, key, s.grava ? 'ERRO' : 'AVISO', `"${cfg.name}" sem a(s) opção(ões): ${faltando.join(', ')}`);
+          push(base, key, s.grava ? ERRO : 'AVISO', `"${cfg.name}" sem a(s) opção(ões): ${faltando.join(', ')}`);
           continue;
         }
       }

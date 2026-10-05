@@ -12,6 +12,7 @@ import { openKpiForm } from './kpi-form.js';
 import { drawArrows, startConnect } from './arrows.js';
 import { krCor, krCor as corSlot, krChartHTML, bindKrChart } from './kchart.js';
 import { ordemAuto } from './layout.js';
+import { documentarComIA } from './ia-doc.js';
 
 export { canWrite };
 
@@ -191,7 +192,7 @@ function laneHTML(n, depth, cor, { raiz = false } = {}) {
     ? `<span class="resp" title="Responsável no Notion">👤 ${esc(n.resp)}</span>`
     : '<span class="resp none" title="Sem responsável — sem quem revise tarefas nem sugira requisitos">⚠ sem responsável</span>';
   const cards = ms.filter(showMeta);
-  return `<div class="lane${filhos.length ? ' pai' : ''}${fechado ? ' fechada' : ''}${raiz ? ' raiz' : ''}" data-lane="${n.id}" data-depth="${Math.min(depth, 3)}" style="--depth:${depth};--tc:${cor}"><div class="lane-h"><div class="nm">${car}<span class="nm-t">${n.codigo ? `<span class="tcod">${esc(n.codigo)}</span>` : ''}${esc(n.nome)} ${tipo}${n.url ? ` <a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:10px">↗</a>` : ''}</span></div><div class="info"><span class="dot" style="background:${stcls}" title="${esc(n.status)}"></span><span style="font-size:11px;color:var(--ink-2)">${esc(n.status)}</span>${resp}${a.map((x) => `<span class="pill" style="border-color:var(--${x});color:var(--${x})">${esc(I.AREA_NAME(x))}</span>`).join('')}</div>${fechado ? `<button type="button" class="tesc" data-toggle="${n.id}">▸ ${esc_.length} item(ns) recolhido(s)${nEsc ? ` · ${nEsc} meta(s)` : ''}</button>` : ''}</div>
+  return `<div class="lane${filhos.length ? ' pai' : ''}${fechado ? ' fechada' : ''}${raiz ? ' raiz' : ''}" data-lane="${n.id}" data-depth="${Math.min(depth, 3)}" style="--depth:${depth};--tc:${cor}"><div class="lane-h"><div class="nm">${car}<span class="nm-t">${n.codigo ? `<span class="tcod">${esc(n.codigo)}</span>` : ''}${esc(n.nome)} ${tipo}${n.url ? ` <a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:10px">↗</a>` : ''}</span></div><div class="info"><span class="dot" style="background:${stcls}" title="${esc(n.status)}"></span><span style="font-size:11px;color:var(--ink-2)">${esc(n.status)}</span>${resp}${a.map((x) => `<span class="pill" style="border-color:var(--${x});color:var(--${x})">${esc(I.AREA_NAME(x))}</span>`).join('')}</div>${canWrite() && !raiz && n.url && !n.sem_acesso ? `<button type="button" class="ldoc" data-doc="${n.id}" title="📝 Documentar com IA: o Gemini lê a página e as tarefas recentes e redige o acréscimo para &quot;6. Desenvolvimento&quot; (vai para o rascunho)">📝</button>` : ''}${fechado ? `<button type="button" class="tesc" data-toggle="${n.id}">▸ ${esc_.length} item(ns) recolhido(s)${nEsc ? ` · ${nEsc} meta(s)` : ''}</button>` : ''}</div>
   <div class="cards">${ds.map(wishHTML).join('') || '<span class="empty">—</span>'}</div>
   <div class="cards drop">${cards.map((m) => cardHTML(m, n.id)).join('')}${canWrite() && !n.sem_acesso ? `<button type="button" class="add" data-add="${n.id}" title="Nova meta em ${esc(n.nome)}">+</button>` : ''}</div></div>`;
 }
@@ -232,6 +233,7 @@ function renderLanes() {
 }
 
 function bindLanes(el) {
+  $$('[data-doc]', el).forEach((b) => { b.onclick = (e) => { e.stopPropagation(); documentarComIA(b.dataset.doc, b); }; });
   $$('[data-toggle]', el).forEach((h) => {
     h.onclick = () => { const id = h.dataset.toggle; if (state.closed.has(id)) state.closed.delete(id); else state.closed.add(id); persist(); renderLanes(); };
   });

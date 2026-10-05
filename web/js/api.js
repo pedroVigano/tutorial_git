@@ -63,3 +63,9 @@ export async function exec(planId, onEvent) {
   }
   return fim || { tipo: 'fim', ok: false, erro: { mensagem: 'A conexão caiu antes do fim — atualize e confira no Notion.' } };
 }
+
+// IA (Gemini no Vertex): transcrever | ata | aprimorar | documentar
+export const ia = (rota, body) => fetch(`/api/ia/${rota}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}).then(asJson);
+export const iaInfo = () => fetch('/api/ia').then(asJson);

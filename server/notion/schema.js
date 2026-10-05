@@ -141,6 +141,25 @@ export const BASES = {
       subsistemas: { name: 'Sistemas e Subsistemas', type: 'relation', target: 'projetos' },
     },
   },
+  // Atas das reuniões gravadas pelo dashboard (IA). Base opcional: sem acesso da integração, a ata fica
+  // desligada (AVISO no schema check), o resto do dashboard segue normal.
+  reunioes: {
+    titulo: '👨‍👩‍👦‍👦 Reuniões',
+    ds: '2538b1dc-5324-8082-866c-000b9a464501',
+    opcional: true,
+    props: {
+      titulo: { name: 'dashboard', type: 'title' },
+      data: { name: 'Date', type: 'date' },
+      duracao: { name: 'Duração (hrs)', type: 'number' },
+      frequencia: { name: 'Frequência', type: 'select', options: ['Pontual'] },
+      nivel: { name: 'Nível', type: 'select', options: ['Estratégico', 'Tático', 'Operacional'] },
+      equipes: { name: 'Equipe(s) envolvida(s)', type: 'multi_select' },
+      area: { name: '🔼 Área', type: 'relation', target: 'areas' },
+      participantes: { name: 'Participantes', type: 'people' },
+      objetivo: { name: 'Objetivo', type: 'rich_text' },
+      material: { name: 'Material de Apoio', type: 'multi_select' },
+    },
+  },
 };
 
 // Diretoria cujos objetivos, projetos e equipes o dashboard mostra.

@@ -86,6 +86,23 @@ export function createApi(client, { limiter = createLimiter() } = {}) {
       return call(count(() => client.blocks.children.append({ block_id, children, ...(after ? { after } : {}) })));
     },
 
+    // Texto de uma página (blocos e filhos de toggles/listas, 1 nível), para a IA ler. Limitado em caracteres.
+    async pageText(page_id, { limite = 12000 } = {}) {
+      const linhas = []; let total = 0;
+      const plain = (b) => (b?.[b.type]?.rich_text || []).map((t) => t.plain_text ?? t.text?.content ?? '').join('');
+      const prefixo = { heading_1: '# ', heading_2: '## ', heading_3: '### ', bulleted_list_item: '- ', numbered_list_item: '1. ', to_do: '- [ ] ', toggle: '▸ ', quote: '> ', callout: '> ' };
+      const visitar = async (id, nivel) => {
+        for (const b of await api.listChildren(id)) {
+          if (total > limite) return;
+          const t = plain(b);
+          if (t) { const l = `${'  '.repeat(nivel)}${prefixo[b.type] || ''}${t}`; linhas.push(l); total += l.length; }
+          if (b.has_children && nivel < 1 && ['toggle', 'bulleted_list_item', 'numbered_list_item', 'heading_3', 'heading_2', 'callout'].includes(b.type)) await visitar(b.id, nivel + 1);
+        }
+      };
+      await visitar(page_id, 0);
+      return linhas.join('\n').slice(0, limite);
+    },
+
     // Pessoas do workspace (com e-mail quando a integração tem a capacidade "ler e-mail de usuários").
     listUsers() {
       return paginate((start_cursor) => client.users.list({ page_size: 100, ...(start_cursor ? { start_cursor } : {}) }));

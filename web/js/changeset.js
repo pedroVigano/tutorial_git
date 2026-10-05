@@ -22,13 +22,20 @@ const mesmaDep = (a, b) => a.bloqueada === b.bloqueada && a.bloqueadora === b.bl
 export class StageError extends Error {}
 
 function item(base, acao, dados, extra = {}) {
-  return { id: base.id || novoId(), acao, dados, titulo: base.titulo || acao, autor: base.autor || null, origem: base.origem || 'manual', incluir: base.incluir ?? true, comentarios: base.comentarios || [], criado: base.criado || new Date().toISOString(), ...extra };
+  return { id: base.id || novoId(), acao, dados, titulo: base.titulo || acao, autor: base.autor || null, origem: base.origem || 'manual', incluir: base.incluir ?? true, comentarios: base.comentarios || [], criado: base.criado || new Date().toISOString(), ...(base.sugestao ? { sugestao: base.sugestao } : {}), ...extra };
 }
+const COM_TMP = ['meta.criar', 'tarefa.criar', 'reuniao.criar']; // itens que criam página e podem ser referenciados
 
 // Devolve a nova lista (não muta a de entrada).
 export function stage(lista0, novo) {
   let lista = lista0.map((x) => ({ ...x, dados: { ...x.dados } }));
   const { acao } = novo; const d = { ...novo.dados };
+  // sugestão da IA entra como item próprio (não se mistura com o que a pessoa fez); aceita na revisão
+  if (novo.origem === 'ia') {
+    const it = item(novo, acao, d);
+    if (COM_TMP.includes(acao)) it.dados.tmp = it.dados.tmp || `${TMP}${it.id}`;
+    return [...lista, it];
+  }
   const criacao = (tmp) => achar(lista, (x) => x.acao === 'meta.criar' && x.dados.tmp === tmp);
   const tocar = (x, titulo) => { if (titulo) x.titulo = titulo; x.atualizado = new Date().toISOString(); };
 
@@ -139,6 +146,11 @@ export function stage(lista0, novo) {
     }
     case 'rollover':
       return [...lista.filter((x) => x.acao !== 'rollover'), item(novo, acao, d)];
+    case 'reuniao.criar': {
+      const it = item(novo, acao, d);
+      it.dados.tmp = it.dados.tmp || `${TMP}${it.id}`;
+      return [...lista, it];
+    }
     default:
       return [...lista, item(novo, acao, d)];
   }
@@ -148,7 +160,7 @@ export function stage(lista0, novo) {
 // de metas novas usam a referência da criação), rollover sempre sozinho.
 export function paraLote(lista) {
   const inc = lista.filter((x) => x.incluir !== false);
-  const ordem = (x) => (x.acao === 'meta.criar' ? 0 : x.acao === 'tarefa.criar' ? 1 : 2);
+  const ordem = (x) => ({ 'reuniao.criar': 0, 'meta.criar': 0, 'tarefa.criar': 1 }[x.acao] ?? 2);
   return inc.slice().sort((a, b) => ordem(a) - ordem(b)).map(({ id, acao, dados, tri }) => ({ id, acao, dados, ...(tri ? { tri } : {}) }));
 }
 

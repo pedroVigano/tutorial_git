@@ -52,15 +52,18 @@ function tituloDe(acao, d) {
     case 'dependencia.remover': return `Remover dependência de "${curto(meta(d.bloqueada))}"`;
     case 'kpi.medir': return `Medição: ${curto(S.D?.kpis.find((k) => k.id === d.kpi)?.titulo || 'KPI')} — #${d.sprint}`;
     case 'rollover': return `Rollover #${d.sprint} → #${Number(d.sprint) + 1}`;
+    case 'reuniao.criar': return `Ata: ${d.titulo || 'reunião'}`;
+    case 'pagina.registro': return `Registrar discussão em "${curto(d.titulo || 'página')}"`;
+    case 'pagina.documentar': return `Documentar "${curto(d.titulo || 'subsistema')}" (IA)`;
     default: return acao;
   }
 }
 
 // Põe uma ação no rascunho (consolidando com o que já está lá). Devolve true se entrou.
-export function stageChange(acao, dados, { titulo, silencioso = false } = {}) {
+export function stageChange(acao, dados, { titulo, silencioso = false, origem = 'manual', incluir, sugestao } = {}) {
   if (!canWrite()) { toast('Somente leitura: você não está na lista de quem grava no Notion.'); return false; }
   try {
-    S.rascunho = stage(S.rascunho || [], { acao, dados, titulo: titulo || tituloDe(acao, dados), autor: S.meta?.email || null });
+    S.rascunho = stage(S.rascunho || [], { acao, dados, titulo: titulo || tituloDe(acao, dados), autor: origem === 'ia' ? 'IA (Gemini)' : (S.meta?.email || null), origem, ...(incluir != null ? { incluir } : {}), ...(sugestao ? { sugestao } : {}) });
   } catch (e) {
     if (e instanceof StageError) { toast(e.message, 4000); return false; }
     throw e;

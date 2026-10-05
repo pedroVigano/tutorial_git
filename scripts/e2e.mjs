@@ -23,7 +23,8 @@ async function start(env) {
   return { app, url: `http://127.0.0.1:${app.server.address().port}` };
 }
 
-const browser = await chromium.launch({ executablePath: chromiumPath() });
+// microfone falso (tom de teste) para a gravação da reunião, sem pedir permissão
+const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 const erros = [];
 const passos = [];
 const ok = (m) => { passos.push(m); console.log(`  ✓ ${m}`); };
@@ -260,6 +261,37 @@ try {
   assert.equal(await page.locator('.card.pend').count(), 0, 'descartar limpa o rascunho');
   ok('rascunho: consolida ações, exclui item, comenta, sobrevive ao recarregar, descarta');
 
+  // IA (modo demonstração): gravar → transcrição → ata + registros + sugestões no rascunho → aprimorar → gravar
+  await page.click('#reuniao-btn');
+  await page.waitForSelector('#reuniao-panel.open #gv-rec');
+  await page.click('#mt-limpar');
+  await page.click('#gv-rec');
+  await page.waitForSelector('#gv-stop');
+  await page.waitForTimeout(2500);
+  assert.match(await page.innerText('#reuniao-btn'), /00:00:0\d/, 'tempo de gravação no cabeçalho');
+  await page.click('#gv-stop');
+  await page.waitForFunction(() => /demonstração/.test(document.getElementById('mt-txt').value), null, { timeout: 15000 });
+  await page.fill('#mt-txt', `${await page.inputValue('#mt-txt')}\nDecidimos testar a bancada amanhã e medir o consumo.`);
+  await page.click('#mt-ata');
+  await page.waitForSelector('#review:not([hidden])', { timeout: 30000 }); // a revisão abre sozinha depois da ata
+  await revisar(page);
+  const nItens = await page.locator('#review .rv-item').count();
+  assert.ok(nItens >= 3, `ata + registro(s) + sugestão(ões) (${nItens})`);
+  assert.ok(await page.locator('#review .rv-item.fora').count() >= 1, 'sugestões da IA entram desmarcadas');
+  assert.match(await page.locator('#review .rv-plan').innerText(), /Reuniões/);
+  await page.click('#rv-ia');
+  await page.waitForSelector('#review .rv-com summary:has-text("1 comentário")', { timeout: 15000 });
+  await gravar(page);
+  ok('IA: gravar → transcrição → ata, registros e sugestões no rascunho → aprimorar → gravar');
+
+  // documentar com IA (lane de subsistema da Tática)
+  await page.locator('#lanes [data-doc]').first().click();
+  await page.waitForSelector('#review:not([hidden])', { timeout: 30000 });
+  await revisar(page);
+  assert.match(await page.locator('#review .rv-plan').innerText(), /Desenvolvimento/);
+  await gravar(page);
+  ok('IA: documentar subsistema → acréscimo em "6. Desenvolvimento" pela revisão');
+
   // 5. abortar (nada é apagado)
   await page.click('.chip:nth-of-type(1)');
   await page.locator('#lanes .card').nth(1).click();
@@ -299,7 +331,7 @@ try {
   await p3.click('#reuniao-btn');
   await p3.waitForSelector('#reuniao-panel.open');
   await p3.fill('#mt-txt', 'Decidimos priorizar o O2 nesta sprint.');
-  assert.match(await p3.innerText('#mt-prev'), /priorizar o O2/);
+  assert.match(await p3.textContent('#mt-prev'), /priorizar o O2/);
   await p3.keyboard.press('Escape');
   await p3.waitForFunction(() => !document.getElementById('reuniao-panel').classList.contains('open'));
   // largura da coluna de desejos: arrastar a alça

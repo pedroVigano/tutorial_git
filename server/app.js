@@ -12,6 +12,8 @@ import { createSnapshotService } from './snapshot/cache.js';
 import { buildPlan } from './writes/plans.js';
 import { createExecutor } from './writes/executor.js';
 import { createAuth } from './auth/iap.js';
+import { createIA } from './ia/vertex.js';
+import { validarAta, validarAprimorar } from './ia/validar.js';
 
 const TRI_RE = /^\d{4} - [1-4]$/;
 
@@ -137,6 +139,89 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
       snapshots.invalidate();
       reply.raw.end();
     }
+  });
+
+  // ---------- IA (Gemini no Vertex) — só para editores, com limite por pessoa ----------
+  const ia = createIA({ config, log: (o) => app.log.info(o) });
+  const usoIA = new Map();
+  const exigeIA = (req) => {
+    exigeEditor(req);
+    const agora = Date.now(); const janela = (usoIA.get(req.user.email) || []).filter((t) => agora - t < 600_000);
+    if (janela.length >= config.iaLimitePor10Min) { const e = new Error('Limite de chamadas à IA atingido — espere alguns minutos.'); e.statusCode = 429; throw e; }
+    janela.push(agora); usoIA.set(req.user.email, janela);
+  };
+  const snapDo = async (req) => (await snapshots.get({ sprint: req.body?.sprint ? Number(req.body.sprint) : null, tri: req.body?.tri && TRI_RE.test(req.body.tri) ? req.body.tri : null })).data;
+  // Contexto enxuto do snapshot para os prompts (ids + nomes).
+  const contexto = (D, { equipe } = {}) => {
+    const metas = D.metas.filter((m) => m.sprints.includes(D.sprint) && !m.fora && (!equipe || m.area === equipe));
+    const idsMetas = new Set(metas.map((m) => m.id));
+    return {
+      sprint: D.sprint, trimestre: D.trimestre.id, data: new Date().toISOString().slice(0, 10),
+      objetivos: D.objetivos.map((o) => ({ id: o.id, label: o.label, titulo: o.titulo })),
+      krs: D.krs.map((k) => ({ id: k.id, label: k.label, titulo: k.titulo })),
+      kpis: D.kpis.map((k) => ({ id: k.id, titulo: k.titulo, alvo: k.alvo, unidade: k.unidade, dir: k.dir, ultima: Object.entries(k.serie || {}).at(-1) || null })),
+      metas: metas.map((m) => ({ id: m.id, titulo: m.titulo, status: m.status, equipe: D.areas[m.area]?.nome, subs: m.subs })),
+      tarefas: (D.tarefas || []).filter((t) => t.metas.some((id) => idsMetas.has(id))).map((t) => ({ id: t.id, titulo: t.titulo, status: t.status, meta: t.metas[0], resp: t.resp })),
+      arvore: D.tree.map((n) => ({ id: n.id, nome: n.nome, tipo: n.tipo, resp: n.resp })),
+      pessoas: (D.pessoas || []).map((p) => ({ id: p.id, nome: p.nome })),
+      equipes: Object.fromEntries(Object.entries(D.areas).filter(([, a]) => !a.ext).map(([k, a]) => [k, a.nome])),
+    };
+  };
+
+  app.get('/api/ia', async () => ({ modo: ia.modo, modelos: { transcricao: config.vertexModelTranscricao, revisao: config.vertexModelRevisao }, local: config.vertexLocation }));
+
+  // Pedaço de áudio (base64, ~5 min) → texto. O áudio não é guardado.
+  app.post('/api/ia/transcrever', { bodyLimit: 25 * 1024 * 1024 }, async (req) => {
+    exigeIA(req);
+    const { audio, mime = 'audio/webm', anterior = '' } = req.body || {};
+    if (!audio) { const e = new Error('Sem áudio.'); e.statusCode = 400; throw e; }
+    const tipo = String(mime).split(';')[0];
+    if (!/^audio\/(webm|ogg|mp4|mpeg|wav|aac|flac)$/.test(tipo)) { const e = new Error(`Formato de áudio não aceito: ${tipo}`); e.statusCode = 400; throw e; }
+    const D = await snapDo(req);
+    const glossario = [...D.metas.filter((m) => m.sprints.includes(D.sprint)).map((m) => m.titulo), ...D.krs.map((k) => k.titulo), ...D.tree.map((n) => n.nome), ...(D.pessoas || []).map((p) => p.nome).filter(Boolean)].join('\n').slice(0, 15000);
+    return ia.transcrever({ audio: Buffer.from(audio, 'base64'), mime: tipo, contexto: glossario, anterior: String(anterior).slice(-1500) });
+  });
+
+  // Transcrição → ata (resumo, decisões, próximos passos) + registros por página + sugestões, já validados.
+  app.post('/api/ia/ata', { bodyLimit: 5 * 1024 * 1024 }, async (req) => {
+    exigeIA(req);
+    const { transcricao = '', tipo = 'Tática', equipe = null } = req.body || {};
+    if (String(transcricao).trim().length < 20) { const e = new Error('Transcrição curta demais.'); e.statusCode = 400; throw e; }
+    const D = await snapDo(req);
+    const bruto = await ia.ata({ transcricao: String(transcricao), contexto: contexto(D, { equipe }), tipo });
+    return validarAta(bruto, D);
+  });
+
+  // Rascunho → sugestões de revisão (editar item, ação nova, comentário), lendo o texto atual das páginas tocadas.
+  app.post('/api/ia/aprimorar', { bodyLimit: 5 * 1024 * 1024 }, async (req) => {
+    exigeIA(req);
+    const { itens = [], transcricao = '' } = req.body || {};
+    if (!itens.length) { const e = new Error('Rascunho vazio.'); e.statusCode = 400; throw e; }
+    const D = await snapDo(req);
+    const ids = [...new Set(itens.flatMap((x) => [x.dados?.meta, x.dados?.tarefa, x.dados?.bloqueada, x.dados?.pagina]).filter((id) => typeof id === 'string' && !id.startsWith('tmp:')))].slice(0, 8);
+    const paginas = await Promise.all(ids.map(async (id) => ({ id, texto: await api.pageText(id, { limite: 3000 }).catch(() => '') })));
+    const bruto = await ia.aprimorar({ itens: itens.slice(0, 40).map(({ id, acao, dados, titulo }) => ({ id, acao, dados, titulo })), paginas, transcricao: String(transcricao).slice(-40000), contexto: contexto(D) });
+    return validarAprimorar(bruto, itens, D);
+  });
+
+  // Subsistema → acréscimo para "6. Desenvolvimento", a partir das tarefas e dos registros de reunião delas.
+  app.post('/api/ia/documentar', async (req) => {
+    exigeIA(req);
+    const D = await snapDo(req);
+    const n = D.tree.find((x) => x.id === req.body?.subsistema);
+    if (!n || !n.url) { const e = new Error('Subsistema não encontrado.'); e.statusCode = 404; throw e; }
+    const ts = (D.tarefas || []).filter((t) => (t.subs || []).includes(n.id) && t.url).slice(0, 10);
+    const [pagina, tarefas] = await Promise.all([
+      api.pageText(n.id, { limite: 8000 }).catch(() => ''),
+      Promise.all(ts.map(async (t) => ({ titulo: t.titulo, status: t.status, resp: t.resp, texto: await api.pageText(t.id, { limite: 2500 }).catch(() => '') }))),
+    ]);
+    const doc = await ia.documentar({ subsistema: { id: n.id, nome: n.nome }, pagina, tarefas });
+    const lista = (xs) => (Array.isArray(xs) ? xs : []).slice(0, 12).map((x) => String(x).slice(0, 600));
+    return {
+      subsistema: { id: n.id, nome: n.nome }, fontes: ts.map((t) => t.titulo),
+      situacao: String(doc.situacao || '').slice(0, 400), decisoes: lista(doc.decisoes), desafios: lista(doc.desafios), falta: lista(doc.falta),
+      verificacao: (Array.isArray(doc.verificacao) ? doc.verificacao : []).slice(0, 10).map((v) => ({ requisito: String(v.requisito || ''), ensaio: String(v.ensaio || ''), resultado: String(v.resultado || ''), data: String(v.data || '') })),
+    };
   });
 
   // ---------- front ----------

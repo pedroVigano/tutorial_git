@@ -7,7 +7,8 @@ import { state } from './state.js';
 import { esc, toast, $ } from './util.js';
 import { hooks, writeLog } from './hooks.js';
 import { paraLote } from './changeset.js';
-import { itensDeFontes, mudarRascunho, fonte, atualizarBotao } from './rascunho.js';
+import { itensDeFontes, mudarRascunho, fonte, atualizarBotao, stageChange } from './rascunho.js';
+import { reuniao as reuniaoAtual } from './gravacao.js';
 
 const excluidosFonte = new Set(); // itens de outras abas desmarcados nesta revisão
 let plano = null; let pedido = 0;
@@ -66,6 +67,7 @@ function itemHTML(x, info, idx) {
     <label class="rv-inc"><input type="checkbox" data-inc="${esc(x.id)}" ${x.incluir === false ? '' : 'checked'}><span class="rv-n">#${idx + 1}</span></label>
     <div class="rv-it"><div class="rv-tt">${esc(info?.titulo || x.titulo)}</div><div class="rv-meta">${autor}${x.deFonte ? `<span class="rv-fonte">${esc(x.fonte)}</span>` : ''}${st}${info ? `<span class="rv-ops">${info.n_ops} op.</span>` : ''}</div>
       ${x.sugestao?.justificativa ? `<div class="rv-sug">💡 ${esc(x.sugestao.justificativa)}${x.sugestao.trecho ? `<blockquote>${esc(x.sugestao.trecho)}</blockquote>` : ''}</div>` : ''}
+      ${x.sugestaoEdit ? `<div class="rv-sug edit">✨ <b>Sugestão da IA:</b> ${esc(x.sugestaoEdit.justificativa)}<div class="rv-sug-d">${Object.entries(x.sugestaoEdit.dados).map(([k, v]) => `<code>${esc(k)}</code> → ${esc(Array.isArray(v) ? v.join(', ') : v)}`).join('<br>')}</div>${x.sugestaoEdit.trecho ? `<blockquote>${esc(x.sugestaoEdit.trecho)}</blockquote>` : ''}<div class="btnrow"><button type="button" class="btn small primary" data-aplicar="${esc(x.id)}">Aplicar</button><button type="button" class="btn small" data-dispensar="${esc(x.id)}">Dispensar</button></div></div>` : ''}
       <details class="rv-com"${(x.comentarios || []).length ? ' open' : ''}><summary>💬 ${(x.comentarios || []).length || ''} comentário${(x.comentarios || []).length === 1 ? '' : 's'}</summary><ul>${coments}</ul>${x.deFonte ? '' : `<div class="rv-com-novo"><textarea rows="2" data-com="${esc(x.id)}" placeholder="Comentar (fica no rascunho)…"></textarea><button type="button" class="btn small" data-com-add="${esc(x.id)}">Comentar</button></div>`}</details>
     </div>
     ${x.deFonte ? '' : `<button type="button" class="rv-desc" data-desc="${esc(x.id)}" title="Descartar do rascunho">✕</button>`}</li>`;
@@ -82,7 +84,7 @@ function arquivosHTML(p, ordem) {
     const comPasso = g.linhas.some((l) => l.passo);
     const nova = !g.pagina?.url;
     return `<section class="rv-arq"><header><span class="rv-base">${esc(g.base)}</span>${g.pagina?.url ? `<a href="${esc(g.pagina.url)}" target="_blank" rel="noopener">${esc(g.pagina.titulo)} ↗</a>` : `<i>${esc(g.pagina?.titulo || '(nova)')}</i>`}${nova ? '<span class="rv-novo">página nova</span>' : ''}<span class="rv-cnt">${g.linhas.length} campo(s)</span></header>
-    <div class="twrap plan-t"><table class="t"><tr>${comPasso ? '<th>Passo</th>' : ''}<th>Campo</th><th>Atual</th><th>Novo</th><th></th></tr>${g.linhas.map((l) => `<tr class="${l.remocao ? 'rem' : ''}" data-de="${esc(l.item || '')}">${comPasso ? `<td class="mono">${esc(l.passo || '')}</td>` : ''}<td class="mono">${esc(l.campo)}</td><td class="del">${l.atual === '' ? '' : cell(l.atual)}</td><td class="ins"><b>${cell(l.novo)}</b></td><td class="rv-ref">${l.item && ordem.has(l.item) ? `#${ordem.get(l.item) + 1}` : ''}</td></tr>`).join('')}</table></div></section>`;
+    <div class="twrap plan-t"><table class="t"><tr>${comPasso ? '<th>Passo</th>' : ''}<th>Campo</th><th>Atual</th><th>Novo</th><th></th></tr>${g.linhas.map((l) => `<tr class="${l.remocao ? 'rem' : ''}" data-de="${esc(l.item || '')}">${comPasso ? `<td class="mono">${esc(l.passo || '')}</td>` : ''}<td class="mono">${esc(l.campo)}</td><td class="del${/^\(/.test(String(l.atual ?? '')) ? ' neutro' : ''}">${l.atual === '' ? '' : cell(l.atual)}</td><td class="ins"><b>${cell(l.novo)}</b></td><td class="rv-ref">${l.item && ordem.has(l.item) ? `#${ordem.get(l.item) + 1}` : ''}</td></tr>`).join('')}</table></div></section>`;
   }).join('');
 }
 
@@ -93,7 +95,7 @@ function render(itens, p, carregando = null, erro = null) {
   const paginas = p ? new Set(p.linhas.map((l) => `${l.base}|${l.pagina?.id || l.pagina?.titulo}`)).size : 0;
   const pode = p && p.planId && !p.bloqueios.length;
   el().innerHTML = `<div class="rv-top"><div><span class="eyebrow">Rascunho · sprint #${esc(S.base?.sprint ?? '')}</span><h2>Revisão antes de gravar no Notion</h2><p class="hint">Como um pull request: confira cada alteração (valor atual lido do Notion agora → valor novo), comente, desmarque o que não vai e grave. Nada é apagado: "apagar" meta é status Abortado; remoção de ligação aparece em vermelho.</p></div>
-    <div class="btnrow"><button type="button" class="btn" id="rv-descartar" ${(S.rascunho || []).length ? '' : 'disabled'}>Descartar rascunho</button><button type="button" class="btn" id="rv-fechar">Fechar</button><button type="button" class="btn primary" id="rv-gravar" ${pode ? '' : 'disabled'}>Gravar no Notion${p ? ` (${inc.length} alteraç${inc.length === 1 ? 'ão' : 'ões'} · ${paginas} página${paginas === 1 ? '' : 's'} · ${p.n_operacoes} op.)` : ''}</button></div></div>
+    <div class="btnrow"><button type="button" class="btn" id="rv-ia" ${itens.length ? '' : 'disabled'} title="O Gemini revisa o rascunho como um revisor de PR: títulos, critérios, regras do modelo, o que a transcrição pede e ainda não está aqui">✨ Aprimorar com IA</button><button type="button" class="btn" id="rv-descartar" ${(S.rascunho || []).length ? '' : 'disabled'}>Descartar rascunho</button><button type="button" class="btn" id="rv-fechar">Fechar</button><button type="button" class="btn primary" id="rv-gravar" ${pode ? '' : 'disabled'}>Gravar no Notion${p ? ` (${inc.length} alteraç${inc.length === 1 ? 'ão' : 'ões'} · ${paginas} página${paginas === 1 ? '' : 's'} · ${p.n_operacoes} op.)` : ''}</button></div></div>
   ${p?.avisos?.length ? `<ul class="plan-avisos">${p.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}
   ${p?.bloqueios?.length ? `<ul class="plan-bloq">${p.bloqueios.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}
   ${erro ? `<p class="plan-bloq">${esc(erro)}</p>` : ''}
@@ -117,12 +119,20 @@ function ligar(itens) {
       planejar();
     };
   });
+  root.querySelector('#rv-ia').onclick = () => aprimorar(itens);
+  root.querySelectorAll('[data-aplicar]').forEach((b) => {
+    b.onclick = () => {
+      mudarRascunho((l) => l.map((y) => (y.id === b.dataset.aplicar ? { ...y, dados: { ...y.dados, ...y.sugestaoEdit.dados }, sugestaoEdit: null, comentarios: [...(y.comentarios || []), { autor: 'IA (Gemini)', texto: `Sugestão aplicada: ${y.sugestaoEdit.justificativa}`, quando: agora() }] } : y)));
+      planejar();
+    };
+  });
+  root.querySelectorAll('[data-dispensar]').forEach((b) => { b.onclick = () => { mudarRascunho((l) => l.map((y) => (y.id === b.dataset.dispensar ? { ...y, sugestaoEdit: null } : y))); render(itensAtuais(), plano); }; });
   root.querySelectorAll('[data-desc]').forEach((b) => { b.onclick = () => { mudarRascunho((l) => l.filter((y) => y.id !== b.dataset.desc)); planejar(); }; });
   root.querySelectorAll('[data-com-add]').forEach((b) => {
     b.onclick = () => {
       const id = b.dataset.comAdd; const ta = root.querySelector(`textarea[data-com="${CSS.escape(id)}"]`);
       const texto = ta.value.trim(); if (!texto) return;
-      const c = { autor: S.meta?.email || '', texto, quando: new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) };
+      const c = { autor: S.meta?.email || '', texto, quando: agora() };
       mudarRascunho((l) => l.map((y) => (y.id === id ? { ...y, comentarios: [...(y.comentarios || []), c] } : y)));
       render(itensAtuais(), plano);
     };
@@ -134,6 +144,26 @@ function ligar(itens) {
   });
   const g = root.querySelector('#rv-gravar');
   if (g && !g.disabled) g.onclick = () => gravar(itens);
+}
+
+const agora = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+// "Aprimorar com IA": sugestões de edição por item, ações que faltam (entram desmarcadas) e comentários.
+async function aprimorar(itens) {
+  const b = el().querySelector('#rv-ia'); b.disabled = true; b.textContent = '✨ Revisando…';
+  try {
+    const r = await api.ia('aprimorar', { itens: itens.map(({ id, acao, dados, titulo }) => ({ id, acao, dados, titulo })), transcricao: reuniaoAtual.texto || '', sprint: state.sprint, tri: state.tri });
+    let n = 0;
+    for (const s of r.sugestoes) {
+      if (s.tipo === 'editar') { mudarRascunho((l) => l.map((y) => (y.id === s.item ? { ...y, sugestaoEdit: { dados: s.dados, justificativa: s.justificativa, trecho: s.trecho } } : y))); n += 1; }
+      else if (s.tipo === 'comentario' && s.item) { mudarRascunho((l) => l.map((y) => (y.id === s.item ? { ...y, comentarios: [...(y.comentarios || []), { autor: 'IA (Gemini)', texto: s.justificativa, quando: agora() }] } : y))); n += 1; }
+      else if (s.tipo === 'nova') { if (stageChange(s.acao, s.dados, { silencioso: true, origem: 'ia', incluir: false, titulo: s.titulo, sugestao: { justificativa: s.justificativa, trecho: s.trecho } })) n += 1; }
+    }
+    toast(n ? `IA: ${n} sugestão(ões) — confira nos itens (as ações novas entram desmarcadas).` : 'IA: nada a sugerir.', 4000);
+  } catch (e) {
+    toast(`IA: ${e.message}`, 6000);
+  }
+  planejar();
 }
 
 async function gravar(itens) {

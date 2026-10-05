@@ -62,7 +62,9 @@ Tudo abaixo passa pelo rascunho e pela revisão antes de gravar.
 | 🗣 Registrar discussão | entrada nova em `## 🗣️ Registro de reuniões` da página (criada no fim se não existir) |
 | Rollover R1–R6 | cria a #N+1; revincula metas e tarefas marcadas; histórico (ou `Sprint_de_origem`, quando existir); medições; no fim, #N → Concluído e #N+1 → Em andamento |
 | Trimestral → Gravar no Notion | páginas novas em 🎯 OKRs Táticos (cópias com `Origem`, KRs/KPIs novos), `KPI` (+) nas medições religadas, edições e `Status` (Abortado / status final) |
-| 🎙 Reunião (painel do cabeçalho, em qualquer aba) | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
+| 🎙 Reunião → ✨ Gerar ata e sugestões | página nova em 👨‍👩‍👦‍👦 Reuniões (Date, Duração, Frequência = Pontual, Nível, Equipes, Área, Participantes, Material de Apoio = Dashboards; corpo com tópicos, decisões, próximos passos e transcrição) + "🗣️ Registro de reuniões" nas páginas citadas + sugestões aceitas na revisão |
+| 📝 Documentar com IA | toggle "Atualização DD/MM — sugerida por IA, revisada por …" logo abaixo de `## 6. Desenvolvimento` (e de `## 5. Verificação`, se houver ensaio) |
+| 🎙 Reunião → prompt para o Claude | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
 
 Outros recursos:
 - **Trimestral** (aba ou `?pagina=trimestral`): reunião trimestral de P&D. Duas colunas pareadas linha a linha: à esquerda o trimestre revisado, à direita o planejado.
@@ -99,6 +101,26 @@ Outros recursos:
     - metas de que participo;
     - OKRs de que sou responsável. Esta parte está marcada A DEFINIR até existir `Responsável pelo OKR`.
 - **🗣 Registrar discussão** (meta, tarefa, item da árvore): acrescenta uma entrada na seção "🗣️ Registro de reuniões" da página, no formato da skill `gestao-sprint-notion` (`### DD/MM/AAAA · Tipo · ⬜ Conferido por —` + Participantes / Discussão / Decisões).
+- **IA (Gemini no Vertex AI):** nada é gravado sem passar pela revisão.
+  - **🎙 Gravar** (painel Reunião, em qualquer aba):
+    - o áudio vai em trechos de ~5 min para o Gemini e vira transcrição ao vivo;
+    - o áudio não é guardado;
+    - a transcrição fica no navegador;
+    - também dá para colar uma transcrição.
+  - **✨ Gerar ata e sugestões** põe no rascunho:
+    - a ata, numa linha em 👨‍👩‍👦‍👦 Reuniões: resumo por tópicos, decisões, próximos passos e a transcrição recolhida;
+    - a entrada do "🗣️ Registro de reuniões" em cada página citada, com o link da ata;
+    - as mudanças sugeridas (status, tarefa nova, medição, meta, dependência), **desmarcadas**, cada uma com a justificativa e o trecho da conversa.
+  - **✨ Aprimorar com IA** (na revisão): o Gemini revisa o rascunho como um revisor de PR.
+    - Lê o texto atual das páginas tocadas e a transcrição.
+    - Devolve três tipos de sugestão: de edição por item (com "Aplicar" e "Dispensar"), de ação que falta (entra desmarcada) e comentários.
+  - **📝 Documentar com IA** (lane da Tática, aba Eu): o Gemini lê a página do subsistema e as tarefas recentes, com seus registros de reunião, e redige um toggle datado logo abaixo de "6. Desenvolvimento". Nada do que já existe é editado.
+  - **Proteções:**
+    - a saída do Gemini é JSON com schema;
+    - ids e valores são conferidos contra o snapshot, e o resto é descartado;
+    - o conteúdo do Notion vai no prompt como dado, não como instrução;
+    - só editores usam, com limite por pessoa.
+  - `IA_MODE=fake` (padrão no modo demonstração) dá respostas fixas, e `IA_MODE=off` desliga.
 - **Tática (board):**
   - **Gráfico de KR:** um gráfico compacto por KR, com todos os KPIs em "% do alvo".
     - O alvo de todos fica na mesma linha (100%), e para cima é melhor (≤ usa alvo/valor).
@@ -185,6 +207,11 @@ Os pontos da Fase 4 ainda abertos (ver `docs/contexto_reestruturacao_sprint.md` 
   - Reaponte as metas antes de arquivar o Entregável-Chave; senão elas ficam sem subsistema.
   - Arrastar o card para outra lane tira o Entregável-Chave da relação, numa linha explícita do plano.
   - Um Entregável-Chave sem item pai continua aparecendo em "Fora dos projetos", porque não há onde exibir as metas dele.
+
+**Conferir no ambiente real** (este repositório só testou com o Notion falso e a IA em modo `fake`):
+- `npm run schema:check`: coluna `ID` (texto) em Projetos; `Prazo`, `Prioridade` e `🔼 Área` em Tarefas; acesso à base 👨‍👩‍👦‍👦 Reuniões.
+- **Integração do Notion:** precisa ler e-mail de usuários, para a aba Eu reconhecer quem está logado.
+- **Vertex AI:** API habilitada, papel `roles/aiplatform.user` na conta de serviço e modelos disponíveis no projeto (ver `docs/deploy-gcp.md`).
 
 **A DEFINIR** (não inventado no código):
 - Retrospectiva por projeto: quem preenche.

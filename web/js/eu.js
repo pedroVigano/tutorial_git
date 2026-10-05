@@ -11,6 +11,7 @@ import { krCor, krChartHTML, bindKrChart } from './kchart.js';
 import { openDrawer } from './drawer.js';
 import { openMetaForm } from './meta-form.js';
 import { quadroHTML, ligarQuadros, tarefasDaSprint, cardTarefa, openRegistroForm } from './tarefas.js';
+import { documentarComIA } from './ia-doc.js';
 
 const stcls = (s) => (s === 'Concluído' ? 'st-good' : s === 'Em andamento' ? 'st-run' : s === 'Abortado' ? 'st-crit' : 'st-neutral');
 
@@ -61,12 +62,13 @@ export function renderEu() {
   </div>
   <section class="eu-sec"><h3>🤖 Projetos, sistemas e subsistemas de que sou responsável <span class="n">${meusNos.length}</span></h3>
     <div class="eu-nos">${meusNos.map((n) => `<div class="eu-no"><div class="eu-no-h"><span class="tcod">${esc(n.codigo || '')}</span><b>${esc(n.nome)}</b><span class="ttipo">${esc(n.tipo)}</span><span class="pill">${esc(n.status)}</span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">↗</a>` : ''}</div><div class="hint">${esc(I.pathOf(n.id).slice(0, -1).join(' › '))}</div>
-      <div class="eu-no-b"><span>${metasS(n.id).length} meta(s) na #${esc(D.sprint)}</span><span>${desejos(n.id).length} desejo(s) em análise</span>${canWrite() ? `<button type="button" class="linkbtn" data-nova-meta="${esc(n.id)}">+ meta</button><button type="button" class="linkbtn" data-reg-no="${esc(n.id)}">🗣 registrar</button>` : ''}</div></div>`).join('') || '<p class="empty">Você não é responsável por nenhum item da árvore.</p>'}</div></section>
+      <div class="eu-no-b"><span>${metasS(n.id).length} meta(s) na #${esc(D.sprint)}</span><span>${desejos(n.id).length} desejo(s) em análise</span>${canWrite() ? `<button type="button" class="linkbtn" data-nova-meta="${esc(n.id)}">+ meta</button><button type="button" class="linkbtn" data-reg-no="${esc(n.id)}">🗣 registrar</button>${n.url ? `<button type="button" class="linkbtn" data-doc="${esc(n.id)}" title="O Gemini redige a atualização de 6. Desenvolvimento a partir das tarefas">📝 documentar com IA</button>` : ''}` : ''}</div></div>`).join('') || '<p class="empty">Você não é responsável por nenhum item da árvore.</p>'}</div></section>
   <section class="eu-sec"><h3>🎯 Objetivos de que sou responsável</h3>${okrs}</section>`;
   ligarVer(el);
   $$('[data-abrir]', el).forEach((b) => { b.onclick = () => openDrawer(b.dataset.abrir); });
   $$('[data-nova-meta]', el).forEach((b) => { b.onclick = () => openMetaForm({ sub: b.dataset.novaMeta }); });
   $$('[data-reg-no]', el).forEach((b) => { b.onclick = () => { const n = I.byId[b.dataset.regNo]; openRegistroForm({ base: 'projetos', id: n.id, titulo: n.nome }); }; });
+  $$('[data-doc]', el).forEach((b) => { b.onclick = () => documentarComIA(b.dataset.doc, b); });
   $$('[data-kpi]', el).forEach((b) => { b.onclick = async () => { const { openKpiForm } = await import('./kpi-form.js'); openKpiForm(D.kpis.find((k) => k.id === b.dataset.kpi)); }; });
   bindKrChart(el, { onToggle: renderEu });
   ligarQuadros(el);

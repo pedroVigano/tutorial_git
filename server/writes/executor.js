@@ -24,11 +24,18 @@ const eq = (a, b) => {
 const normHeading = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
   .replace(/[^\p{L}\p{N}\s]/gu, '').trim().toLowerCase();
 
+// Descritores de bloco dos planos → blocos da API do Notion.
 const toBlocks = (children, urlOf) => (children || []).map((c) => {
+  if (c.h1) return blocks.h1(c.h1);
   if (c.h2) return blocks.h2(c.h2);
+  if (c.h3) return blocks.h3(c.h3);
+  if (c.li) return blocks.bullet(urlOf(c.li));
+  if (c.rotulo) return blocks.rotulo(c.rotulo, urlOf(c.texto || ''));
+  if (c.toggle) return blocks.toggle(c.toggle, toBlocks(c.filhos, urlOf));
   if (c.link) return blocks.link(c.link, c.url);
   return blocks.p(urlOf(c.p));
 });
+const LOTE_BLOCOS = 90; // a API aceita até 100 blocos por chamada
 
 export function createExecutor({ api, audit = () => {} }) {
   const plans = new Map();
@@ -124,6 +131,28 @@ export function createExecutor({ api, audit = () => {} }) {
         }
         await api.appendChildren(page.id, novos, children[last].id);
         return { texto: `linha acrescentada em "${op.heading}"`, url: page.url };
+      }
+      case 'blocos': {
+        // acrescenta blocos no fim da página (ex.: transcrição da reunião), em lotes
+        const page = await api.retrievePage(pageId);
+        const bs = toBlocks(op.blocos, urlOf);
+        for (let i = 0; i < bs.length; i += LOTE_BLOCOS) await api.appendChildren(page.id, bs.slice(i, i + LOTE_BLOCOS));
+        return { texto: `${bs.length} bloco(s) acrescentado(s)`, url: page.url };
+      }
+      case 'depoisDoTitulo': {
+        // insere logo depois do título da seção (ex.: "6. Desenvolvimento" do template de Subsistema), sem
+        // mexer no que já existe; sem a seção, cria o título no fim da página
+        const page = await api.retrievePage(pageId);
+        const children = await api.listChildren(page.id);
+        const alvo = normHeading(op.heading);
+        const idx = children.findIndex((b) => /^heading_[123]$/.test(b.type) && normHeading(blockText(b)).endsWith(alvo));
+        const bs = toBlocks(op.blocos, urlOf);
+        if (idx < 0) {
+          await api.appendChildren(page.id, [blocks.h2(op.heading), ...bs]);
+          return { texto: `seção "${op.heading}" criada no fim da página`, url: page.url };
+        }
+        await api.appendChildren(page.id, bs, children[idx].id);
+        return { texto: `acrescentado logo abaixo de "${op.heading}"`, url: page.url };
       }
       case 'registro': {
         // "## 🗣️ Registro de reuniões" (criada no fim se não existir) + "### cabeçalho" + bullets com rótulo

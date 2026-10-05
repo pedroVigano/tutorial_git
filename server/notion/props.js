@@ -97,6 +97,8 @@ export function toProperties(base, values) {
 export const blocks = {
   h2: (t) => ({ object: 'block', type: 'heading_2', heading_2: { rich_text: text(t) } }),
   h3: (t) => ({ object: 'block', type: 'heading_3', heading_3: { rich_text: text(t) } }),
+  h1: (t) => ({ object: 'block', type: 'heading_1', heading_1: { rich_text: text(t) } }),
+  toggle: (t, children = []) => ({ object: 'block', type: 'toggle', toggle: { rich_text: text(t), ...(children.length ? { children } : {}) } }),
   // "**Rótulo:** texto" (formato do Registro de reuniões da skill gestao-sprint-notion)
   rotulo: (r, t) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ type: 'text', text: { content: `${r}: ` }, annotations: { bold: true } }, ...text(t)] } }),
   p: (t) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: text(t) } }),

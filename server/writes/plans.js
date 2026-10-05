@@ -642,7 +642,7 @@ Object.assign(ACOES, {
       ['Discussão', String(dados.discussao || '').trim()],
       ['Decisões', String(dados.decisoes || '').trim() || 'nenhuma'],
       ...(dados.sugestoes ? [['Sugestões da IA', `${String(dados.sugestoes).trim()} (aguardam conferência)`]] : []),
-      ...(dados.reuniao ? [['Reunião', `{url:${dados.reuniao}}`]] : []),
+      ...(dados.reuniao ? [['Reunião', `{url:${typeof dados.reuniao === 'object' ? dados.reuniao.ref : dados.reuniao}}`]] : []),
     ].filter(([, t]) => t);
     if (!String(dados.discussao || '').trim()) bloqueios.push('Escreva a discussão.');
     let titulo = dados.titulo || '(página)'; let url = null;
@@ -658,6 +658,98 @@ Object.assign(ACOES, {
       ops: [{ op: 'registro', pageId, heading: SECOES.registro, titulo: cab, itens }],
       avisos: [], bloqueios,
     };
+  },
+});
+
+// ---------------------------------------------------------------- IA: ata da reunião e documentação
+// Texto longo → parágrafos de até 1900 caracteres (o Notion aceita 2000 por bloco), quebrando em linhas.
+function paragrafos(txt, max = 1900) {
+  const out = []; let cur = '';
+  for (const linha of String(txt || '').split(/\n+/).map((l) => l.trim()).filter(Boolean)) {
+    for (let i = 0; i < linha.length; i += max) {
+      const pedaco = linha.slice(i, i + max);
+      if (cur && cur.length + pedaco.length + 1 > max) { out.push(cur); cur = ''; }
+      cur = cur ? `${cur}\n${pedaco}` : pedaco;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+const NIVEIS = ['Estratégico', 'Tático', 'Operacional'];
+
+Object.assign(ACOES, {
+  // Linha nova em 👨‍👩‍👦‍👦 Reuniões com o resumo (no formato das atas que já existem) e a transcrição recolhida.
+  async 'reuniao.criar'({ D, dados }) {
+    const R = BASES.reunioes; const B = R.props;
+    const bloqueios = []; const avisos = [];
+    if (!has('reunioes', 'titulo')) bloqueios.push(`A base ${R.titulo} não está acessível pela integração do Notion (veja /api/health) — conecte a integração à base para gravar atas.`);
+    const titulo = String(dados.titulo || '').trim();
+    if (!titulo) bloqueios.push('A reunião precisa de um título.');
+    const data = String(dados.data || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const nivel = NIVEIS.includes(dados.nivel) ? dados.nivel : 'Tático';
+    const N = namer(D);
+    const areas = (dados.areas || []).map((k) => N.areaKey(k)).filter(Boolean);
+    const participantes = (dados.participantes || []).map(ID);
+    const duracao = dados.duracao == null || dados.duracao === '' ? null : Math.round(Number(dados.duracao) * 100) / 100;
+    const props = {
+      titulo, data, frequencia: 'Pontual', nivel, material: ['Dashboards'],
+      ...(duracao != null && Number.isFinite(duracao) ? { duracao } : {}),
+      ...(dados.equipes?.length ? { equipes: dados.equipes } : {}),
+      ...(areas.length ? { area: areas.map((a) => a.id) } : {}),
+      ...(participantes.length ? { participantes } : {}),
+      ...(dados.objetivo ? { objetivo: String(dados.objetivo).slice(0, 1900) } : {}),
+    };
+    const nomes = participantes.map((id) => nomePessoa(D, id));
+    const corpo = [
+      ...(dados.resumo || []).flatMap((t) => [{ h3: String(t.topico || 'Tópico') }, ...(t.itens || []).map((x) => ({ li: String(x) }))]),
+      ...((dados.decisoes || []).length ? [{ h3: 'Decisões' }, ...dados.decisoes.map((x) => ({ li: String(x) }))] : []),
+      ...((dados.proximos || []).length ? [{ h3: 'Próximos Passos' }, ...dados.proximos.map((x) => ({ li: `${x.acao}${x.responsavel ? ` (${x.responsavel})` : ''}` }))] : []),
+    ];
+    const ps = paragrafos(dados.transcricao);
+    const partes = [];
+    for (let i = 0; i < ps.length; i += 90) partes.push(ps.slice(i, i + 90));
+    const transc = partes.map((p, i) => ({ toggle: `Transcrição${partes.length > 1 ? ` (parte ${i + 1}/${partes.length})` : ''} — gravada no dashboard, transcrita pelo Gemini`, filhos: p.map((x) => ({ p: x })) }));
+    if (!ps.length) avisos.push('Reunião sem transcrição.');
+    const ops = [
+      { op: 'create', base: 'reunioes', ref: 'reuniao', props, children: [{ h1: titulo }, { p: `${data.split('-').reverse().join('/')} · ${nomes.join(', ') || 'participantes não informados'}` }], dedupe: { key: 'titulo', value: titulo } },
+      ...(corpo.length || transc.length ? [{ op: 'blocos', pageId: { ref: 'reuniao' }, blocos: [...corpo, ...transc] }] : []),
+    ];
+    const nova = pag(null, titulo);
+    const linhas = [
+      { base: R.titulo, pagina: nova, campo: 'criar página', atual: '', novo: `${data.split('-').reverse().join('/')} · ${nivel} · Pontual${duracao != null ? ` · ${String(duracao).replace('.', ',')} h` : ''}` },
+      { base: R.titulo, pagina: nova, campo: B.participantes.name, atual: '', novo: nomes.join(', ') || '—' },
+      ...(areas.length || dados.equipes?.length ? [{ base: R.titulo, pagina: nova, campo: `${B.area.name} / ${B.equipes.name}`, atual: '', novo: [...areas.map((a) => a.nome), ...(dados.equipes || [])].join(' · ') }] : []),
+      { base: R.titulo, pagina: nova, campo: 'corpo', atual: '', novo: `${(dados.resumo || []).length} tópico(s) · ${(dados.decisoes || []).length} decisão(ões) · ${(dados.proximos || []).length} próximo(s) passo(s) · transcrição: ${String(dados.transcricao || '').length.toLocaleString('pt-BR')} caracteres` },
+    ];
+    return { titulo: `Ata: ${titulo}`, linhas, ops, avisos, bloqueios };
+  },
+
+  // Documentação do subsistema sugerida pela IA (a partir das tarefas e dos registros de reunião): entra como
+  // um toggle datado logo abaixo de "6. Desenvolvimento" (e "5. Verificação", quando houver ensaio). Nada existente
+  // é editado ou apagado.
+  async 'pagina.documentar'({ api, dados, email }) {
+    const pageId = ID(dados.pagina);
+    const page = await api.retrievePage(pageId).catch(() => null);
+    const bloqueios = page ? [] : ['Página do subsistema não encontrada no Notion.'];
+    const titulo = page ? titleOf(page) : (dados.titulo || '(subsistema)');
+    const dia = hoje().slice(0, 5);
+    const cab = `Atualização ${dia} — sugerida por IA, revisada por ${email}`;
+    const lis = (rot, xs) => ((xs || []).filter(Boolean).length ? [{ rotulo: rot, texto: '' }, ...xs.filter(Boolean).map((x) => ({ li: String(x) }))] : []);
+    const filhos = [
+      ...(dados.situacao ? [{ rotulo: 'Situação', texto: String(dados.situacao) }] : []),
+      ...lis('Decisões de projeto', dados.decisoes),
+      ...lis('Desafios e soluções', dados.desafios),
+      ...lis('Falta', dados.falta),
+      ...((dados.fontes || []).length ? [{ rotulo: 'Fontes', texto: dados.fontes.join(' · ') }] : []),
+    ];
+    if (!filhos.length) bloqueios.push('Nada para documentar.');
+    const ops = [{ op: 'depoisDoTitulo', pageId, heading: dados.heading || '6. Desenvolvimento', blocos: [{ toggle: cab, filhos }] }];
+    const linhas = [{ base: BASES.projetos.titulo, pagina: pag(page, titulo), campo: `## ${dados.heading || '6. Desenvolvimento'}`, atual: '(conteúdo atual mantido)', novo: `+ ▸ ${cab}: ${filhos.map((f) => f.li || (f.rotulo ? `${f.rotulo}${f.texto ? `: ${f.texto}` : ''}` : '')).filter(Boolean).join(' · ').slice(0, 600)}` }];
+    if ((dados.verificacao || []).length) {
+      ops.push({ op: 'depoisDoTitulo', pageId, heading: '5. Verificação', blocos: [{ toggle: `Ensaios citados ${dia} — sugeridos por IA`, filhos: dados.verificacao.map((v) => ({ li: [v.requisito, v.ensaio, v.resultado, v.data].filter(Boolean).join(' · ') })) }] });
+      linhas.push({ base: BASES.projetos.titulo, pagina: pag(page, titulo), campo: '## 5. Verificação', atual: '(tabela atual mantida)', novo: `+ ▸ ${dados.verificacao.length} ensaio(s) citado(s)` });
+    }
+    return { titulo: `Documentar "${titulo}" (IA)`, linhas, ops, avisos: ['Texto sugerido pela IA: confira antes de gravar; entra como bloco novo, sem editar o que existe.'], bloqueios };
   },
 });
 
@@ -686,7 +778,8 @@ ACOES.lote = async function lote(ctx) {
   if (!itens.length) bloqueios.push('Nada a gravar: o rascunho está vazio (ou nenhum item está incluído).');
   if (itens.some((x) => x.acao === 'rollover') && itens.length > 1) bloqueios.push('O rollover é gravado sozinho: desmarque os outros itens ou grave-os antes.');
   // meta/tarefa ainda não criada → referência da criação
-  const ref = new Map(itens.filter((x) => ['meta.criar', 'tarefa.criar'].includes(x.acao) && x.dados?.tmp).map((x) => [x.dados.tmp, { ref: `${x.id}/${x.acao === 'meta.criar' ? 'meta' : 'tarefa'}`, g: 1 }]));
+  const REF_DE = { 'meta.criar': 'meta', 'tarefa.criar': 'tarefa', 'reuniao.criar': 'reuniao' };
+  const ref = new Map(itens.filter((x) => REF_DE[x.acao] && x.dados?.tmp).map((x) => [x.dados.tmp, { ref: `${x.id}/${REF_DE[x.acao]}`, g: 1 }]));
   const titulos = new Map(itens.filter((x) => x.acao === 'meta.criar').map((x) => [x.dados.tmp, String(x.dados.titulo || '(meta nova)')]));
   const N = namer(D);
   for (const it of itens) {
