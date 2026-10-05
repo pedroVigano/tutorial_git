@@ -18,6 +18,17 @@ Navegador ──IAP (login Google)──► Cloud Run · Node 22 / Fastify ─�
   - O snapshot fica em cache por 2 min.
   - O botão "Notion lido às HH:MM ↻" força uma nova leitura.
   - A tela se atualiza sozinha: a cada 2 min, ou a cada 1 min no modo TV.
+- **Rascunho e revisão.** Nada é gravado na hora.
+  - **Rascunho:** cada ação (meta nova, editar, mover, dependência, abortar, próxima sprint, medição, rollover, Trimestral) entra no **📝 Rascunho**. Ele fica no navegador, por sprint, e a tela mostra o pendente tracejado.
+  - **Consolidação:** ações sobre a mesma coisa viram uma só (`web/js/changeset.js`):
+    - mexer numa meta ainda não criada muda o próprio item de criação, e abortá-la tira do rascunho;
+    - mover A→B→C vira A→C;
+    - criar e remover a mesma dependência se anulam.
+  - **Revisão:** funciona como um pull request (`web/js/review.js`).
+    - À esquerda ficam as alterações: incluir ou excluir, autor, comentários, descartar.
+    - À direita, o diff por página do Notion, com o valor atual lido agora (− atual / + novo).
+    - "Gravar no Notion" grava os itens incluídos num plano único (`lote`): criações primeiro; dependência com meta nova usa a referência da criação.
+    - O que foi gravado sai do rascunho; o que falhou fica.
 - **Gravação.**
   1. `POST /api/plan` relê os valores atuais no Notion e devolve o plano.
   2. `POST /api/exec` grava passo a passo, com o progresso na tela.
@@ -28,6 +39,8 @@ Navegador ──IAP (login Google)──► Cloud Run · Node 22 / Fastify ─�
   - Nada é apagado: "apagar" meta é status **Abortado**.
   - Relações são acumulativas. Remoção só acontece em "mover de subsistema" e "remover dependência", sempre como linha própria em vermelho no plano.
   - As regras do modelo aparecem como avisos: título com verbo, exatamente 1 equipe, ≥ 1 objetivo, ≥ 1 subsistema.
+
+Tudo abaixo passa pelo rascunho e pela revisão antes de gravar.
 
 | Ação no dashboard | O que grava no Notion |
 |---|---|

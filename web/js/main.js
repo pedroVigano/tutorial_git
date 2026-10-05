@@ -1,7 +1,7 @@
 // Entrada do front: carrega o snapshot do Notion (via servidor), monta header e páginas,
 // atualiza sozinho (ETag) e liga os atalhos. Portado do mock v2.2.
 import * as api from './api.js';
-import { S, setData } from './store.js';
+import { S, setData, recalc } from './store.js';
 import { state, persist } from './state.js';
 import { hooks } from './hooks.js';
 import { esc, toast, download, dm, quarterShift, $, $$ } from './util.js';
@@ -12,6 +12,8 @@ import { renderReuniao, openReuniao, closeReuniao, reuniaoAberta } from './reuni
 import { renderTrimestral } from './trimestral.js';
 import { closeModal } from './modal.js';
 import { closeDrawer } from './drawer.js';
+import { carregar as carregarRascunho, atualizarBotao } from './rascunho.js';
+import { abrirRevisao, fecharRevisao, revisaoAberta } from './review.js';
 
 const POLL_MS = state.tv ? 60_000 : 120_000;
 
@@ -80,6 +82,7 @@ $$('.nav button').forEach((b) => { b.onclick = () => showPage(b.dataset.page); }
 $('#reuniao-btn').onclick = () => (reuniaoAberta() ? closeReuniao() : openReuniao());
 $('#go-reuniao').onclick = openReuniao;
 $('#reuniao-close').onclick = closeReuniao;
+$('#rascunho-btn').onclick = abrirRevisao;
 
 function render() {
   if (!S.D) return;
@@ -101,6 +104,7 @@ async function load(force = false) {
       const r = await api.getSnapshot({ sprint: state.sprint, tri: state.tri, force });
       if (!r.changed && S.D) { renderHeader(); return; }
       setData(r);
+      carregarRascunho(S.base.sprint); recalc(); atualizarBotao();
       applyAreaColors(S.D.areas);
       render();
     } catch (e) {
@@ -140,6 +144,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   closeDrawer();
   if ($('#modal-bg').classList.contains('open')) closeModal();
+  else if (revisaoAberta()) fecharRevisao();
   else if (reuniaoAberta()) closeReuniao();
   if (state.linking) { state.linking = null; render(); }
 });

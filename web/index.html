@@ -24,6 +24,7 @@
   <span class="spacer"></span>
   <button class="badge" id="badge-data" title="Recarregar do Notion agora">carregando…</button>
   <span class="user" id="user-chip"></span>
+  <button class="btn small" id="rascunho-btn" hidden>📝 Rascunho</button>
   <button class="btn small" id="reuniao-btn" title="Reunião: registrar a discussão com o Claude (disponível em todas as abas)" aria-controls="reuniao-panel" aria-expanded="false">🎙 Reunião</button>
   <button class="icon-btn" id="theme-btn" title="Tema claro / escuro / automático" aria-label="Alternar tema">◐</button>
   <a class="icon-btn" id="tv-btn" href="?modo=tv" title="Modo TV: tela grande, cabeçalho recolhido, atualiza sozinho" aria-label="Modo TV">📺</a>
@@ -43,7 +44,7 @@
   <div class="bottom">
     <section class="panel"><h3>⚠ Alertas por regra <span class="n" id="al-n"></span></h3><div class="alerts" id="alerts"></div></section>
     <section class="panel"><h3>🧾 Gravações no Notion <span class="n" id="log-n"></span></h3>
-      <p class="hint" style="margin:0 0 8px" id="log-hint">Cada ação no board (meta nova, edição, mover de subsistema, dependência, abortar, próxima sprint, medição de KPI) mostra primeiro o <b>plano de escrita</b> — base, página, campo, valor atual e valor novo — e só grava no Notion depois de você confirmar. Nada é apagado: "apagar" uma meta = status Abortado.</p>
+      <p class="hint" style="margin:0 0 8px" id="log-hint">Cada ação (meta nova, edição, mover de subsistema, dependência, abortar, próxima sprint, medição de KPI, rollover, Trimestral) entra no <b>📝 Rascunho</b> — nada é gravado na hora. Na revisão, como num pull request, você confere base, página, campo, valor atual e valor novo, comenta, desmarca o que não vai e grava tudo de uma vez. Nada é apagado: "apagar" uma meta = status Abortado.</p>
       <div class="fila" id="log"></div>
       <div class="btnrow"><button class="btn" id="dl-json">Baixar JSON das metas</button><button class="btn" id="go-reuniao">🎙 Registrar reunião com o Claude →</button></div>
     </section>
@@ -54,6 +55,7 @@
 <section id="page-rollover" class="page" hidden></section>
 </main>
 
+<section id="review" aria-label="Revisão do rascunho" hidden></section>
 <aside id="reuniao-panel" aria-label="Reunião"><button class="close" id="reuniao-close" aria-label="Fechar">×</button><div id="reuniao-body"></div></aside>
 <aside id="drawer" aria-label="Detalhe"><button class="close" id="drawer-close" aria-label="Fechar">×</button><div id="drawer-body"></div></aside>
 <div class="modal-bg" id="modal-bg"><form class="modal" id="modal-form"><button type="button" class="close" id="modal-close" aria-label="Fechar">×</button><div id="modal-body"></div></form></div>

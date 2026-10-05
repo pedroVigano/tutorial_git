@@ -106,8 +106,14 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
     exigeEditor(req);
     const { acao, dados = {}, sprint = null, tri = null } = req.body || {};
     if (tri && !TRI_RE.test(tri)) return reply.code(400).send({ erro: 'Trimestre inválido' });
-    const v = await snapshots.get({ sprint: sprint ? Number(sprint) : null, tri, force: acao === 'rollover' });
-    const plan = await buildPlan(acao, { api, D: v.data, dados, email: req.user.email });
+    const temRollover = acao === 'rollover' || (acao === 'lote' && (dados.itens || []).some((x) => x.acao === 'rollover'));
+    const v = await snapshots.get({ sprint: sprint ? Number(sprint) : null, tri, force: temRollover });
+    // itens do lote com outro trimestre (ex.: Trimestral revisando outro trimestre) usam o snapshot dele
+    const snapshotDe = async (t) => {
+      if (!TRI_RE.test(String(t))) throw Object.assign(new Error('Trimestre inválido'), { statusCode: 400 });
+      return (await snapshots.get({ sprint: sprint ? Number(sprint) : null, tri: t })).data;
+    };
+    const plan = await buildPlan(acao, { api, D: v.data, dados, email: req.user.email, snapshotDe });
     const planId = plan.bloqueios.length ? null : executor.store(plan, req.user.email);
     const { ops, ...visivel } = plan;
     return { planId, ...visivel, n_operacoes: ops.length };

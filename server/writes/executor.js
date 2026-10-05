@@ -45,7 +45,7 @@ export function createExecutor({ api, audit = () => {} }) {
 
   async function runOp(op, refs) {
     const resolve = (v) => (v && typeof v === 'object' && v.ref ? (refs[v.ref]?.id ?? (() => { throw new Error(`referência ${v.ref} não criada`); })()) : v);
-    const urlOf = (text) => String(text).replace(/\{url:([\w:.-]+)\}/g, (_, r) => refs[r]?.url || '');
+    const urlOf = (text) => String(text).replace(/\{url:([\w:./-]+)\}/g, (_, r) => refs[r]?.url || '');
     const pageId = resolve(op.pageId);
 
     switch (op.op) {

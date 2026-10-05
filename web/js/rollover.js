@@ -3,7 +3,8 @@
 import { S, canWrite } from './store.js';
 import { esc, fmt, $, $$ } from './util.js';
 import { hooks } from './hooks.js';
-import { requestWrite } from './plan-modal.js';
+import { stageChange } from './rascunho.js';
+import { abrirRevisao } from './review.js';
 
 const addDays = (d, n) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 const ABERTAS_T = ['A Fazer', 'Em Andamento', 'Em Revisão', 'Bloqueada'];
@@ -37,15 +38,18 @@ export function renderRollover() {
       <ul style="margin:0;padding-left:18px;font-size:12px"><li>Template "Sprint P&amp;D #N": view de OKRs com Trimestre fixo → trocar para o trimestre atual</li><li>Base Tarefas: view "Sprint Atual" → #${nxt}</li><li>Páginas operacionais das equipes e página "Eu" (quando existirem)</li></ul></div></div>
     <div class="step"><div class="no azul">R6</div><div><h3>Líder da equipe confere e confirma</h3><div class="who">Só depois disto algo é gravado — o plano de escrita mostra cada página e campo antes de gravar</div>
       ${w ? `<label class="ctl" style="margin-bottom:8px"><input type="checkbox" id="r-fechar" checked> No fim, marcar #${cur} como Concluído e #${nxt} como Em andamento</label>
-      <div class="btnrow"><button class="btn primary" id="r-go">Montar plano do rollover</button><span class="hint">Um único plano com R1–R4 e o fechamento; a gravação roda passo a passo e pode ser refeita sem duplicar.</span></div>` : '<p class="hint">Somente leitura.</p>'}</div></div>
+      <div class="btnrow"><button class="btn primary" id="r-go">Revisar e gravar o rollover</button><span class="hint">Entra no rascunho como um item só (R1–R4 e o fechamento) e abre a revisão; é gravado sozinho, passo a passo, e pode ser refeito sem duplicar.</span></div>` : '<p class="hint">Somente leitura.</p>'}</div></div>
   </div>`;
   $('#roll-sel', el).onchange = (e) => hooks.setSprint(Number(e.target.value));
   if (!w) return;
-  $('#r-go', el).onclick = () => requestWrite('rollover', {
-    sprint: cur,
-    metas: $$('.r-m:checked', el).map((c) => c.dataset.id),
-    tarefas: $$('.r-t:checked', el).map((c) => c.dataset.id),
-    medicoes: $$('.r-k', el).filter((i) => i.value.trim()).map((i) => ({ kpi: i.dataset.id, valor: i.value.trim() })),
-    fechar: $('#r-fechar', el).checked,
-  });
+  $('#r-go', el).onclick = () => {
+    const ok = stageChange('rollover', {
+      sprint: cur,
+      metas: $$('.r-m:checked', el).map((c) => c.dataset.id),
+      tarefas: $$('.r-t:checked', el).map((c) => c.dataset.id),
+      medicoes: $$('.r-k', el).filter((i) => i.value.trim()).map((i) => ({ kpi: i.dataset.id, valor: i.value.trim() })),
+      fechar: $('#r-fechar', el).checked,
+    }, { silencioso: true });
+    if (ok) abrirRevisao();
+  };
 }

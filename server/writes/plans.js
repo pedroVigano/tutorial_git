@@ -515,6 +515,74 @@ function medicaoPlano(k, s, valor, data) {
   return { titulo: `Medição: ${k.titulo.slice(0, 60)} — #${s.n}`, linhas, ops, avisos: [] };
 }
 
+// ---------------------------------------------------------------- rascunho do dashboard (lote)
+// itens: [{id, acao, dados, tri?}] na ordem em que entram (criações primeiro). Cada item vira o seu plano;
+// as referências de criação ganham o prefixo do item ("<item>/meta") para não colidirem, e uma meta ainda não
+// criada ("tmp:<item>") é referenciada pela criação dela. Bloqueio de um item não impede os outros de aparecerem
+// na revisão, mas impede gravar até o item sair do lote.
+const TMP = 'tmp:';
+const isTmp = (id) => typeof id === 'string' && id.startsWith(TMP);
+function prefixar(v, pre) {
+  if (Array.isArray(v)) return v.map((x) => prefixar(x, pre));
+  if (typeof v === 'string') return v.replace(/\{url:([\w:./-]+)\}/g, (_, r) => `{url:${pre}/${r}}`);
+  if (v && typeof v === 'object') {
+    if (typeof v.ref === 'string' && v.g) return v; // referência a outro item do lote (já completa)
+    if (typeof v.ref === 'string' && Object.keys(v).length === 1) return { ref: `${pre}/${v.ref}` };
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'ref' && typeof x === 'string' ? `${pre}/${x}` : prefixar(x, pre)]));
+  }
+  return v;
+}
+
+ACOES.lote = async function lote(ctx) {
+  const { D, dados } = ctx;
+  const itens = Array.isArray(dados.itens) ? dados.itens : [];
+  const linhas = []; const ops = []; const avisos = []; const bloqueios = []; const resumo = []; const opItens = [];
+  if (!itens.length) bloqueios.push('Nada a gravar: o rascunho está vazio (ou nenhum item está incluído).');
+  if (itens.some((x) => x.acao === 'rollover') && itens.length > 1) bloqueios.push('O rollover é gravado sozinho: desmarque os outros itens ou grave-os antes.');
+  // meta/tarefa ainda não criada → referência da criação
+  const ref = new Map(itens.filter((x) => ['meta.criar', 'tarefa.criar'].includes(x.acao) && x.dados?.tmp).map((x) => [x.dados.tmp, { ref: `${x.id}/${x.acao === 'meta.criar' ? 'meta' : 'tarefa'}`, g: 1 }]));
+  const titulos = new Map(itens.filter((x) => x.acao === 'meta.criar').map((x) => [x.dados.tmp, String(x.dados.titulo || '(meta nova)')]));
+  const N = namer(D);
+  for (const it of itens) {
+    const info = { id: it.id, acao: it.acao, titulo: it.acao, avisos: [], bloqueios: [], n_ops: 0 };
+    try {
+      if (!ACOES[it.acao] || it.acao === 'lote') throw new PlanError(`Ação desconhecida: ${it.acao}`, 404);
+      let p;
+      const d = it.dados || {};
+      if (it.acao === 'dependencia.criar' && (isTmp(d.bloqueada) || isTmp(d.bloqueadora))) {
+        // dependência com meta nova do próprio rascunho: relação direta, pela referência da criação
+        const alvo = isTmp(d.bloqueada) ? ref.get(d.bloqueada) : ID(d.bloqueada);
+        const fonte = isTmp(d.bloqueadora) ? ref.get(d.bloqueadora) : ID(d.bloqueadora);
+        const nome = (id) => (isTmp(id) ? `${titulos.get(id) || '(meta nova)'} (nova)` : N.meta(ID(id)));
+        if (!alvo || !fonte) throw new PlanError('A meta nova desta dependência não está no lote — inclua a criação dela.');
+        p = {
+          titulo: `"${nome(d.bloqueada)}" bloqueada por "${nome(d.bloqueadora)}"`,
+          linhas: [{ base: BASES.metas.titulo, pagina: pag(isTmp(d.bloqueada) ? null : { id: alvo, url: N.metaObj(alvo)?.url }, nome(d.bloqueada)), campo: `${BASES.metas.props.bloqueadoPor.name} (adicionar)`, atual: isTmp(d.bloqueada) ? '' : lista(N.metaObj(alvo)?.bloq || [], N.meta), novo: `+ ${nome(d.bloqueadora)}` }],
+          ops: [{ op: 'relAdd', base: 'metas', pageId: alvo, key: 'bloqueadoPor', ids: [fonte] }],
+          avisos: [], bloqueios: [], global: true,
+        };
+      } else {
+        const Di = it.tri && ctx.snapshotDe ? await ctx.snapshotDe(it.tri) : D;
+        const troca = (v) => (isTmp(v) ? ref.get(v) || v : v);
+        const dadosRef = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, Array.isArray(v) ? v.map(troca) : troca(v)]));
+        p = await ACOES[it.acao]({ ...ctx, D: Di, dados: dadosRef });
+      }
+      const pOps = p.global ? p.ops : prefixar(p.ops, it.id);
+      info.titulo = p.titulo; info.avisos = p.avisos || []; info.bloqueios = p.bloqueios || []; info.n_ops = pOps.length;
+      linhas.push(...p.linhas.map((l) => ({ ...l, item: it.id })));
+      ops.push(...pOps); opItens.push(...pOps.map(() => it.id));
+      avisos.push(...info.avisos);
+      bloqueios.push(...info.bloqueios.map((b) => `${p.titulo}: ${b}`));
+    } catch (e) {
+      if (!(e instanceof PlanError) && !e.statusCode) throw e;
+      info.bloqueios = [e.message];
+      bloqueios.push(`${it.acao}: ${e.message}`);
+    }
+    resumo.push(info);
+  }
+  return { titulo: `Rascunho: ${itens.length} alteraç${itens.length === 1 ? 'ão' : 'ões'}`, linhas, ops, avisos: [...new Set(avisos)], bloqueios, itens: resumo, opItens };
+};
+
 export async function buildPlan(acao, ctx) {
   const f = ACOES[acao];
   if (!f) throw new PlanError(`Ação desconhecida: ${acao}`, 404);

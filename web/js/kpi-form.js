@@ -3,7 +3,7 @@
 import { S } from './store.js';
 import { esc, fmt } from './util.js';
 import { openModal, closeModal } from './modal.js';
-import { requestWrite } from './plan-modal.js';
+import { stageChange } from './rascunho.js';
 
 export function openKpiForm(k, { sprint } = {}) {
   const { D } = S;
@@ -13,11 +13,11 @@ export function openKpiForm(k, { sprint } = {}) {
     <div class="two"><label>Sprint<select id="k-s">${opts}</select></label>
     <label>Valor${k.unidade ? ` (${esc(k.unidade)})` : ''}<input id="k-v" inputmode="decimal" required placeholder="ex.: 12,5"></label></div>
     <label>Data da medição<input id="k-d" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
-    <p class="hint" style="margin:0">Uma linha por KPI × sprint. Se a sprint já tiver medição, o plano mostra a troca do valor.</p>
-    <div class="btnrow"><button class="btn primary" type="submit">Montar plano</button><button class="btn" type="button" id="k-cancel">Cancelar</button></div>`, {
+    <p class="hint" style="margin:0">Uma linha por KPI × sprint. Se a sprint já tiver medição, a revisão mostra a troca do valor.</p>
+    <div class="btnrow"><button class="btn primary" type="submit">Pôr no rascunho</button><button class="btn" type="button" id="k-cancel">Cancelar</button></div>`, {
     onSubmit: () => {
       const valor = b.querySelector('#k-v').value.trim(); if (!valor) return;
-      requestWrite('kpi.medir', { kpi: k.id, sprint: Number(b.querySelector('#k-s').value), valor, data: b.querySelector('#k-d').value });
+      if (stageChange('kpi.medir', { kpi: k.id, sprint: Number(b.querySelector('#k-s').value), valor, data: b.querySelector('#k-d').value })) closeModal();
     },
   });
   b.querySelector('#k-cancel').onclick = closeModal;

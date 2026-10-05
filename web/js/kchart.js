@@ -104,7 +104,8 @@ function svgHTML(M) {
     }
     pts.forEach((p) => {
       const atual = p.sp === cur;
-      const attrs = p.rep ? `class="mk rep" style="fill:var(--surface-2);stroke:${cor}"` : `class="mk" style="fill:${cor}"`;
+      const pend = se.k.pendSerie?.[String(p.sp)];
+      const attrs = p.rep ? `class="mk rep" style="fill:var(--surface-2);stroke:${cor}"` : `class="mk${pend ? ' pend' : ''}" style="fill:${cor}"`;
       g += marcaSVG(marca(j), x(p.i), y(p.f), atual ? 4.6 : 3.8, attrs);
       if (p.f > top) g += `<text class="over" x="${x(p.i)}" y="${y(top) - 2}" text-anchor="middle">▲</text>`;
     });
@@ -142,7 +143,7 @@ function tipHTML(M, i) {
   const linhas = M.series.filter((s) => !s.off).map((s) => {
     const p = s.pts.find((q) => q.i === i);
     const v = p ? `<b>${comUnidade(s.k, p.v)}</b>` : '<b>—</b>';
-    const extra = p ? [s.norm ? pct(p.f) + ' do alvo' : 'sem alvo', p.rep ? `repetido da #${p.de}` : null].filter(Boolean).join(' · ') : 'sem medição';
+    const extra = p ? [s.norm ? pct(p.f) + ' do alvo' : 'sem alvo', p.rep ? `repetido da #${p.de}` : null, !p.rep && s.k.pendSerie?.[String(p.sp)] ? 'no rascunho' : null].filter(Boolean).join(' · ') : 'sem medição';
     return `<div class="tl"><span class="key" style="background:${s.cor}"></span>${v}<small>${esc(extra)}</small><span class="nm">${esc(s.k.titulo)}</span></div>`;
   }).join('');
   return `<div class="th">Sprint #${sp}${sp === M.cur ? ' (atual)' : ''}</div>${linhas || '<div class="tl"><small>nenhum KPI visível</small></div>'}`;

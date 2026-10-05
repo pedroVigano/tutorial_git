@@ -1,6 +1,7 @@
 // Página Trimestral: trimestre revisado (esquerda) × planejado (direita), linha a linha.
 // Duplicar copia o objetivo com KRs e KPIs para a direita; lá se edita o texto, arrasta-se o alvo no gráfico,
-// aborta-se ou acrescentam-se itens. Tudo fica num rascunho neste navegador até "Gravar no Notion", que mostra
+// aborta-se ou acrescentam-se itens. Tudo fica num rascunho neste navegador; "Revisar e gravar" leva o rascunho para a
+// revisão geral (review.js) como um item, que mostra
 // um único plano de escrita (cópias com Origem, medições religadas, edições, abortos e status final).
 import * as api from './api.js';
 import { S, buildIndex, canWrite } from './store.js';
@@ -8,7 +9,8 @@ import { state } from './state.js';
 import { esc, fmt, store, quarterShift, toast, $, $$ } from './util.js';
 import { kpiStatus, krStatus, objStatus } from './rules.js';
 import { scoreHTML } from './board.js';
-import { requestWrite } from './plan-modal.js';
+import { registrarFonte, atualizarBotao } from './rascunho.js';
+import { abrirRevisao } from './review.js';
 import { krCor, kpiCor, pontos } from './kchart.js';
 
 export const STATUS_FINAL = ['Atingido', 'Atingido Parcialmente', 'Não atingido', 'Abortado'];
@@ -60,6 +62,22 @@ function ensure(force = false) {
     }
   })();
 }
+
+// O rascunho da Trimestral entra na revisão geral como um item "okr.trimestre" (só quando muda algo).
+registrarFonte('Trimestral', {
+  itens: () => {
+    if (!pg.rev) return [];
+    const M = model(); if (!M) return [];
+    const c = contagem(M); if (!(c.criar + c.editar + c.abortar + c.fim)) return [];
+    return [{
+      id: `tri:${pg.rev}>${pg.plan}`, acao: 'okr.trimestre', tri: pg.rev,
+      dados: { rev: pg.rev, plan: pg.plan, itens: itensDoRascunho(M), statusFinal: statusFinal() },
+      titulo: `Reunião trimestral: ${triLabel(pg.rev)} → ${triLabel(pg.plan)} (${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais)`,
+      autor: S.meta?.email || null, origem: 'manual', incluir: true, comentarios: [],
+    }];
+  },
+  aoGravar: () => { draft = emptyDraft(); saveDraft(); pg.data = {}; ensure(true); toast('Trimestral gravada no Notion — rascunho limpo'); },
+});
 
 export function renderTrimestral() {
   if (!S.D) return;
@@ -329,7 +347,7 @@ function seletores() {
 function barra(M) {
   const c = contagem(M); const total = c.criar + c.editar + c.abortar + c.fim;
   const pode = canWrite();
-  return `<div class="tq-bar"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span><span><b>${esc(triLabel(pg.plan))}</b> no Notion: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run" id="tq-cont">rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais</span><span class="spacer"></span>${`<button class="btn small" id="tq-novo-obj">＋ objetivo em ${esc(triLabel(pg.plan))}</button><button class="btn small" id="tq-descartar" ${total ? '' : 'disabled'}>Descartar rascunho</button><button class="btn primary" id="tq-gravar" ${total && pode ? '' : 'disabled'} title="${pode ? 'Mostra o plano de escrita antes de gravar' : 'Somente leitura: o rascunho fica só neste navegador'}">Gravar no Notion${total ? ` (${total})` : ''}</button>`}</div>`;
+  return `<div class="tq-bar"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span><span><b>${esc(triLabel(pg.plan))}</b> no Notion: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run" id="tq-cont">rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais</span><span class="spacer"></span>${`<button class="btn small" id="tq-novo-obj">＋ objetivo em ${esc(triLabel(pg.plan))}</button><button class="btn small" id="tq-descartar" ${total ? '' : 'disabled'}>Descartar rascunho</button><button class="btn primary" id="tq-gravar" ${total && pode ? '' : 'disabled'} title="${pode ? 'Abre a revisão do rascunho (junto com as outras alterações) antes de gravar no Notion' : 'Somente leitura: o rascunho fica só neste navegador'}">Revisar e gravar${total ? ` (${total})` : ''}</button>`}</div>`;
 }
 
 function paint() {
@@ -339,7 +357,7 @@ function paint() {
   if (el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]),textarea')) { pg.pending = true; return; }
   pg.pending = false;
   const M = model();
-  const head = `<div class="page-h"><h2>Trimestral · OKRs de P&amp;D</h2>${seletores()}<p>À esquerda, a revisão de ${esc(triLabel(pg.rev))}; à direita, ${esc(triLabel(pg.plan))}. Duplique o objetivo (vem com KRs e KPIs), edite os textos, arraste o alvo no gráfico, aborte o que não segue ou acrescente KRs e KPIs. Tudo fica num rascunho neste navegador até <b>Gravar no Notion</b>, que mostra o plano de escrita antes. Sprints com * são projetadas.</p></div>`;
+  const head = `<div class="page-h"><h2>Trimestral · OKRs de P&amp;D</h2>${seletores()}<p>À esquerda, a revisão de ${esc(triLabel(pg.rev))}; à direita, ${esc(triLabel(pg.plan))}. Duplique o objetivo (vem com KRs e KPIs), edite os textos, arraste o alvo no gráfico, aborte o que não segue ou acrescente KRs e KPIs. Tudo fica num rascunho neste navegador; <b>Revisar e gravar</b> abre a revisão (junto com as outras alterações do 📝 Rascunho) antes de gravar no Notion. Sprints com * são projetadas.</p></div>`;
   if (!M) {
     el.innerHTML = `${head}<div class="panel">${pg.err ? `<div class="banner crit">Não foi possível ler o Notion: ${esc(pg.err)} <button class="btn small" id="tq-retry">Tentar de novo</button></div>` : '<div class="empty">Lendo os OKRs dos dois trimestres no Notion…</div>'}</div>`;
     bindHead(el);
@@ -375,7 +393,8 @@ function bind(el, M) {
   const contador = () => {
     const c = contagem(model()); const total = c.criar + c.editar + c.abortar + c.fim;
     const b = el.querySelector('#tq-cont'); if (b) b.textContent = `rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais`;
-    const g = el.querySelector('#tq-gravar'); if (g) { g.disabled = !(total && canWrite()); g.textContent = `Gravar no Notion${total ? ` (${total})` : ''}`; }
+    const g = el.querySelector('#tq-gravar'); if (g) { g.disabled = !(total && canWrite()); g.textContent = `Revisar e gravar${total ? ` (${total})` : ''}`; }
+    atualizarBotao();
     const d = el.querySelector('#tq-descartar'); if (d) d.disabled = !total;
   };
   $$('[data-dup]', el).forEach((b) => { b.onclick = () => { marcarDup(M, b.dataset.dup, b.dataset.grau); repaint(); }; });
@@ -406,10 +425,8 @@ function bind(el, M) {
   const grv = el.querySelector('#tq-gravar');
   if (grv) {
     // modelo refeito na hora: textos digitados depois do último desenho entram no plano
-    grv.onclick = () => requestWrite('okr.trimestre', { rev: pg.rev, plan: pg.plan, itens: itensDoRascunho(model()), statusFinal: statusFinal() }, {
-      tri: pg.rev,
-      onDone: (fim) => { if (fim.ok) { draft = emptyDraft(); saveDraft(); pg.data = {}; ensure(true); toast('Gravado no Notion — rascunho limpo'); } },
-    });
+    // o rascunho da Trimestral entra na revisão geral como um item (fonte "Trimestral")
+    grv.onclick = () => abrirRevisao();
   }
   bindDrag(el);
   if (!el.dataset.focusout) {

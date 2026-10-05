@@ -5,7 +5,7 @@ import { state, persist, order } from './state.js';
 import { esc, fmt, dm, toast, $, $$ } from './util.js';
 import { kpiLast, kpiStatus, krStatus, objStatus, coverage, stColor, visibleProjects, computeAlerts, OUTROS } from './rules.js';
 import { hooks, writeLog } from './hooks.js';
-import { requestWrite } from './plan-modal.js';
+import { stageChange } from './rascunho.js';
 import { openDrawer } from './drawer.js';
 import { openMetaForm } from './meta-form.js';
 import { openKpiForm } from './kpi-form.js';
@@ -163,8 +163,8 @@ function cardHTML(m, sub) {
   const tk = t ? `<div class="tk" title="Tarefas: A Fazer · Em Andamento · Em Revisão · Concluídas${t.Bloqueada ? ' · Bloqueadas' : ''}"><span>a fazer <b>${t['A Fazer']}</b></span><span>andam. <b>${t['Em Andamento']}</b></span><span>rev. <b>${t['Em Revisão']}</b></span><span>concl. <b>${t['Concluída']}</b></span>${t.Bloqueada ? `<span style="color:var(--crit)">bloq. <b>${t.Bloqueada}</b></span>` : ''}</div>` : '';
   const stcls = m.status === 'Concluído' ? 'st-good' : m.status === 'Em andamento' ? 'st-run' : m.status === 'Abortado' ? 'st-crit' : 'st-neutral';
   const w = canWrite();
-  return `<div class="card ${dim ? 'dim' : ''} ${state.linking === m.id ? 'linking' : ''}" role="button" tabindex="0" ${w ? 'draggable="true"' : ''} data-meta="${m.id}" data-sub="${sub}" style="--team:var(--${m.area})" title="${esc(m.titulo)}${w ? ' — arraste para reordenar ou mudar de subsistema; arraste de uma bolinha até outra meta para ligar dependência' : ''}">${w ? ['n', 'e', 's', 'w'].map((sd) => `<span class="hd ${sd}" data-hd="${sd}" draggable="false" title="Arraste até a meta que esta bloqueia"></span>`).join('') : ''}
-    <div class="row"><span class="team">${esc(a.nome)}${(m.areas || []).length > 1 ? ` <span class="tag ex" title="${(m.areas || []).map(I.AREA_NAME).join(' + ')} — regra: 1 equipe por meta">+${m.areas.length - 1} área</span>` : ''}</span>${shared ? `<span class="tag" title="Meta ligada a ${m.subs.length} subsistemas — aparece em cada lane">×${m.subs.length} subs</span>` : ''}${ec ? `<span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="No Notion a meta está ligada ao Entregável-Chave ${esc(ec.map((e) => `"${e.nome}"`).join(', '))}, tipo que saiu do modelo — reapontar para este item">via entregável-chave</span>` : ''}${linked ? '<span class="star" title="Ligada ao objetivo ativo">★</span>' : ''}</div>
+  return `<div class="card ${dim ? 'dim' : ''} ${state.linking === m.id ? 'linking' : ''} ${m.pend ? 'pend' : ''}" role="button" tabindex="0" ${w ? 'draggable="true"' : ''} data-meta="${m.id}" data-sub="${sub}" style="--team:var(--${m.area})" title="${esc(m.titulo)}${w ? ' — arraste para reordenar ou mudar de subsistema; arraste de uma bolinha até outra meta para ligar dependência' : ''}">${w ? ['n', 'e', 's', 'w'].map((sd) => `<span class="hd ${sd}" data-hd="${sd}" draggable="false" title="Arraste até a meta que esta bloqueia"></span>`).join('') : ''}
+    <div class="row"><span class="team">${esc(a.nome)}${(m.areas || []).length > 1 ? ` <span class="tag ex" title="${(m.areas || []).map(I.AREA_NAME).join(' + ')} — regra: 1 equipe por meta">+${m.areas.length - 1} área</span>` : ''}</span>${shared ? `<span class="tag" title="Meta ligada a ${m.subs.length} subsistemas — aparece em cada lane">×${m.subs.length} subs</span>` : ''}${ec ? `<span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="No Notion a meta está ligada ao Entregável-Chave ${esc(ec.map((e) => `"${e.nome}"`).join(', '))}, tipo que saiu do modelo — reapontar para este item">via entregável-chave</span>` : ''}${m.pend ? `<span class="tag pe" title="Alteração no 📝 Rascunho — ainda não gravada no Notion">rascunho: ${esc(m.pend.join(', '))}</span>` : ''}${linked ? '<span class="star" title="Ligada ao objetivo ativo">★</span>' : ''}</div>
     <div class="tt">${esc(m.titulo)}</div>
     <div class="row"><span class="pill ${stcls}">${esc(m.status)}</span>${(m.okrs || []).map((o) => `<span class="pill" title="${esc(I.objById[o]?.titulo || '')}">${I.objLabel(o)}</span>`).join('')}${(m.okrs_extra || []).map((o) => `<span class="pill st-warn" title="${esc(o)}">OKR fora de P&amp;D/${esc(D.trimestre.id)}</span>`).join('')}${m.n_sprints > 1 ? `<span class="pill" title="Aparece em ${m.n_sprints} sprints: ${m.sprints.map((x) => `#${x}`).join(' → ')}">↻ ${m.n_sprints}</span>` : ''}${(m.bloq || []).length ? `<span class="pill" title="Bloqueada por ${m.bloq.length} meta(s)">⛓ ${m.bloq.length}</span>` : ''}</div>${tk}</div>`;
 }
@@ -282,12 +282,12 @@ function nextCardId(card) { let n = card.nextElementSibling; while (n && !n.clas
 function dropMeta(drag, lane, beforeId) {
   const card = document.querySelector(`.card[data-meta="${drag.id}"]`); if (card) card._justDragged = true;
   if (lane !== drag.sub) {
-    if (!lane) { toast('Para tirar a meta de um subsistema, edite a meta (a remoção precisa aparecer no plano).'); return; }
+    if (!lane) { toast('Para tirar a meta de um subsistema, edite a meta (a remoção aparece na revisão).'); return; }
     // ordem local já no destino; a relação vai para o plano de escrita
     const ids = metasIn(lane).map((x) => x.id).filter((x) => x !== drag.id);
     const idx = beforeId ? ids.indexOf(beforeId) : ids.length;
     ids.splice(idx < 0 ? ids.length : idx, 0, drag.id); order.set(lane, ids);
-    requestWrite('meta.mover', { meta: drag.id, de: drag.sub || null, para: lane });
+    stageChange('meta.mover', { meta: drag.id, de: drag.sub || null, para: lane });
     return;
   }
   const ids = metasIn(lane).map((x) => x.id).filter((x) => x !== drag.id);
@@ -301,7 +301,7 @@ function dropMeta(drag, lane, beforeId) {
 function onCard(id) {
   if (state.linking && state.linking !== id) {
     const from = state.linking; state.linking = null; renderLanes();
-    requestWrite('dependencia.criar', { bloqueada: id, bloqueadora: from });
+    stageChange('dependencia.criar', { bloqueada: id, bloqueadora: from });
     return;
   }
   openDrawer(id);

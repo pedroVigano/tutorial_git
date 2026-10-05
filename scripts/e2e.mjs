@@ -28,16 +28,22 @@ const erros = [];
 const passos = [];
 const ok = (m) => { passos.push(m); console.log(`  ✓ ${m}`); };
 
+// Abre a revisão do rascunho (se ainda não está aberta) e espera o plano lido do Notion.
+async function revisar(page) {
+  if (await page.locator('#review').isHidden()) await page.click('#rascunho-btn');
+  await page.waitForSelector('#review .rv-plan .plan-t, #review .plan-bloq', { timeout: 30000 });
+}
+// Revisão → Gravar no Notion → fechar e atualizar.
 async function gravar(page) {
-  await page.waitForSelector('.plan-t, .plan-bloq');
-  const bloq = await page.$('.plan-bloq');
+  await revisar(page);
+  const bloq = await page.$('#review .plan-bloq');
   if (bloq) throw new Error(`plano bloqueado: ${await bloq.innerText()}`);
-  await page.click('#modal-form button[type=submit]');
-  await page.waitForSelector('.plan-ok, .plan-err', { timeout: 15000 });
-  const err = await page.$('.plan-err');
+  await page.click('#rv-gravar');
+  await page.waitForSelector('#review .plan-ok, #review .plan-err', { timeout: 30000 });
+  const err = await page.$('#review .plan-err');
   if (err) throw new Error(`gravação falhou: ${await err.innerText()}`);
-  await page.click('#p-done');
-  await page.waitForFunction(() => !document.getElementById('modal-bg').classList.contains('open'));
+  await page.click('#rv-fim');
+  await page.waitForFunction(() => document.getElementById('review').hidden);
   await page.waitForTimeout(400);
 }
 
@@ -55,12 +61,14 @@ try {
   await lane.locator('[data-add]').click();
   await page.fill('#f-t', 'Testar fluxo de ponta a ponta do dashboard');
   await page.click('#modal-form button[type=submit]');
-  await page.waitForSelector('.plan-t');
-  const linhas = await page.locator('.plan-t tr').count();
-  assert.ok(linhas >= 7, 'plano da nova meta tem uma linha por campo');
+  await page.waitForSelector('.card.pend:has-text("Testar fluxo de ponta a ponta do dashboard")');
+  assert.match(await page.innerText('#rascunho-btn'), /1/, 'rascunho com 1 alteração');
+  await revisar(page);
+  const linhas = await page.locator('#review .plan-t tr').count();
+  assert.ok(linhas >= 7, 'revisão da nova meta tem uma linha por campo');
   await gravar(page);
-  await page.waitForSelector('.card:has-text("Testar fluxo de ponta a ponta do dashboard")');
-  ok('nova meta: plano → gravar → card aparece');
+  await page.waitForSelector('.card:not(.pend):has-text("Testar fluxo de ponta a ponta do dashboard")');
+  ok('nova meta: rascunho → revisão → gravar → card aparece');
 
   // 2. dependência por clique (drawer → ligar → clicar na bloqueada)
   const cards = page.locator('#lanes .card');
@@ -68,8 +76,9 @@ try {
   await cards.nth(0).click();
   await page.click('#d-link');
   await cards.nth(3).click();
-  await page.waitForSelector('.plan-t');
-  assert.match(await page.locator('.plan-t').innerText(), /Bloqueado por/);
+  await page.waitForSelector('#arrows path.pend');
+  await revisar(page);
+  assert.match(await page.locator('#review .plan-t').first().innerText(), /Bloqueado por/);
   await gravar(page);
   const setas = await page.locator('#arrows path[data-edge]').count();
   assert.ok(setas >= 1, 'seta de dependência desenhada');
@@ -80,8 +89,9 @@ try {
   const tituloMov = (await origem.locator('.tt').innerText()).trim();
   const destino = page.locator('.lane[data-lane]:not(:has(.card)) .cards.drop').first();
   await origem.dragTo(destino);
-  await page.waitForSelector('.plan-t');
-  assert.equal(await page.locator('.plan-t tr.rem').count(), 1, 'remoção do subsistema antigo aparece como linha própria');
+  await page.waitForSelector('.card.pend');
+  await revisar(page);
+  assert.equal(await page.locator('#review .plan-t tr.rem').count(), 1, 'remoção do subsistema antigo aparece como linha própria');
   await gravar(page);
   ok(`mover de subsistema: "${tituloMov.slice(0, 30)}…" com remoção explícita no plano`);
 
@@ -150,8 +160,8 @@ try {
   await novoKr.fill('Garantir KR novo criado na reunião');
   await novoKr.blur();
   await page.click('#tq-gravar');
-  await page.waitForSelector('.plan-t, .plan-bloq', { timeout: 30000 });
-  assert.match(await page.locator('.plan-t').innerText(), /criar página/);
+  await revisar(page);
+  assert.match(await page.locator('#review .rv-plan').innerText(), /criar página/);
   await gravar(page);
   await page.waitForFunction(() => document.querySelectorAll('.tq-grp .tq-cell.q4.exist').length > 0, null, { timeout: 30000 });
   const grp0 = page.locator('.tq-grp').first();
@@ -168,10 +178,10 @@ try {
   await grp0.locator('.tq-row.obj [data-abortar]').click();
   await page.waitForSelector('.tq-grp >> nth=0 >> text=abortado junto com o item principal');
   await page.click('#tq-gravar');
-  await page.waitForSelector('.plan-t', { timeout: 30000 });
-  const abortos = await page.locator('.plan-t tr:has-text("Abortado")').count();
+  await revisar(page);
+  const abortos = await page.locator('#review .plan-t tr:has-text("Abortado")').count();
   assert.ok(abortos >= 3, `abortar objetivo existente aborta KRs e KPIs (${abortos} linhas)`);
-  await page.click('#p-cancel');
+  await page.click('#rv-fechar');
   await page.click('#tq-descartar', { force: true }).catch(() => {});
   page.once('dialog', (d) => d.accept());
   await page.click('#tq-descartar');
@@ -179,12 +189,48 @@ try {
   await page.click('[data-page="board"]');
   await page.waitForSelector('.card');
 
+  // rascunho: meta nova + dependência + mover a meta nova = 2 itens (o mover entra na criação); excluir um
+  // item replaneja; o rascunho sobrevive ao recarregar; descartar limpa
+  await page.click('.chip:nth-of-type(1)');
+  await page.locator('.lane[data-lane]:has(.card)').nth(1).locator('[data-add]').click();
+  await page.fill('#f-t', 'Validar consolidação do rascunho');
+  await page.click('#modal-form button[type=submit]');
+  const nova = page.locator('.card.pend:has-text("Validar consolidação do rascunho")');
+  await nova.click();
+  await page.click('#d-link');
+  await page.locator('#lanes .card:not(.pend)').first().click();
+  await page.waitForSelector('#arrows path.pend');
+  await page.locator('.card.pend:has-text("Validar consolidação do rascunho")').dragTo(page.locator('.lane[data-lane]:not(:has(.card)) .cards.drop').first());
+  await page.waitForTimeout(300);
+  assert.match(await page.innerText('#rascunho-btn'), /\b2\b/, 'criação + dependência; o mover entrou na criação');
+  await revisar(page);
+  assert.equal(await page.locator('#review .rv-item').count(), 2);
+  await page.locator('#review [data-inc]').nth(1).uncheck();
+  await page.waitForSelector('#review .rv-item.fora');
+  await page.waitForSelector('#review .rv-plan .plan-t');
+  assert.ok(!(await page.locator('#review .rv-plan').innerText()).includes('Bloqueado por'), 'item excluído sai do plano');
+  await page.locator('#review .rv-com summary').first().click();
+  await page.locator('#review textarea[data-com]').first().fill('Conferir com a equipe antes');
+  await page.locator('#review [data-com-add]').first().click();
+  await page.click('#rv-fechar');
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('.card.pend:has-text("Validar consolidação do rascunho")');
+  assert.match(await page.innerText('#rascunho-btn'), /\b2\b/, 'rascunho sobrevive ao recarregar');
+  await revisar(page);
+  assert.match(await page.locator('#review .rv-lista').innerText(), /Conferir com a equipe antes/);
+  page.once('dialog', (d) => d.accept());
+  await page.click('#rv-descartar');
+  await page.waitForFunction(() => !document.querySelector('#review .rv-item'));
+  await page.click('#rv-fechar');
+  assert.equal(await page.locator('.card.pend').count(), 0, 'descartar limpa o rascunho');
+  ok('rascunho: consolida ações, exclui item, comenta, sobrevive ao recarregar, descarta');
+
   // 5. abortar (nada é apagado)
   await page.click('.chip:nth-of-type(1)');
   await page.locator('#lanes .card').nth(1).click();
   await page.click('#d-abort');
-  await page.waitForSelector('.plan-t');
-  assert.match(await page.locator('.plan-avisos').innerText(), /Nada é apagado/);
+  await revisar(page);
+  assert.match(await page.locator('#review .plan-avisos').innerText(), /Nada é apagado/);
   await gravar(page);
   ok('abortar meta (status Abortado)');
 
@@ -193,8 +239,8 @@ try {
   await page.waitForSelector('#r-go');
   await page.locator('.r-k').first().fill('2');
   await page.click('#r-go');
-  await page.waitForSelector('.plan-t');
-  const passosRoll = await page.locator('.plan-t td.mono').allInnerTexts();
+  await revisar(page);
+  const passosRoll = await page.locator('#review .plan-t td.mono').allInnerTexts();
   for (const p of ['R1', 'R2', 'R4', 'R6']) assert.ok(passosRoll.some((t) => t.trim() === p), `plano do rollover tem ${p}`);
   await gravar(page);
   await page.waitForFunction(() => [...document.querySelectorAll('#sel-sprint option')].some((o) => o.value === '28'));

@@ -1,4 +1,5 @@
 // Dados do snapshot (objeto D, no formato do mock) + índices. Sem DOM: importável nos testes em Node.
+import { overlay } from './changeset.js';
 
 // Ordem da árvore de projetos: coluna ID do Notion ("1.10" depois de "1.9"); sem ID vai para o fim, por nome.
 export function porCodigo(a, b) {
@@ -28,14 +29,21 @@ export function buildIndex(D) {
   return { byId, children, rootOf, pathOf, isLane, objById, krById, metaById, krsOf, kpisOf, AREA_NAME, sprintNums, objLabel };
 }
 
-export const S = { D: null, I: null, meta: null };
+// base = snapshot do Notion (servidor); D = base com o rascunho aplicado (o que a tela mostra).
+export const S = { base: null, D: null, I: null, meta: null, rascunho: [] };
 
 // Quem está na lista de editores pode montar o rascunho e gravar — inclusive no modo TV (só o cabeçalho recolhe).
 export const canWrite = () => !!S.meta?.pode_gravar;
 
 export function setData(payload) {
-  S.D = payload.D;
+  S.base = payload.D;
   S.meta = payload.meta;
-  S.I = buildIndex(S.D);
+  recalc();
   return S;
+}
+
+// Reaplica o rascunho sobre o snapshot (depois de carregar ou de mudar o rascunho).
+export function recalc() {
+  S.D = S.base ? overlay(S.base, S.rascunho || []) : null;
+  S.I = S.D ? buildIndex(S.D) : null;
 }

@@ -250,3 +250,31 @@ test('trimestral: edita e aborta itens existentes do trimestre planejado; descri
   const vazio = await run('okr.trimestre', { rev: '2026 - 3', plan: '2026 - 4', itens: [{ key: 'n:x', grau: 'Objetivo', pai: null, origem: o.id, titulo: '  ' }] });
   assert.ok(vazio.plan.bloqueios.some((b) => /vazia/.test(b)));
 });
+
+test('lote: plano único do rascunho — meta nova + dependência com ela + medição; refs por item; bloqueio de um item aparece', async () => {
+  const { fake, api, D, ex, metasComSub } = await setup();
+  const alvo = metasComSub[2];
+  const k = D.kpis.find((x) => x.alvo != null && x.serie[String(D.sprint)] == null);
+  const itens = [
+    { id: 'c1', acao: 'meta.criar', dados: { titulo: 'Integrar sensores ao chassi', area: 'sw', sprint: D.sprint, subs: alvo.subs, objetivo: D.objetivos[0].id, tmp: 'tmp:c1' } },
+    { id: 'c2', acao: 'dependencia.criar', dados: { bloqueada: alvo.id, bloqueadora: 'tmp:c1' } },
+    { id: 'c3', acao: 'kpi.medir', dados: { kpi: k.id, sprint: D.sprint, valor: '2' } },
+  ];
+  const plan = await buildPlan('lote', { api, D, dados: { itens }, email: EMAIL });
+  assert.deepEqual(plan.bloqueios, []);
+  assert.deepEqual(plan.itens.map((i) => i.id), ['c1', 'c2', 'c3']);
+  assert.ok(plan.linhas.every((l) => ['c1', 'c2', 'c3'].includes(l.item)), 'cada linha diz de que item vem');
+  assert.equal(plan.opItens.length, plan.ops.length);
+  assert.ok(plan.ops.some((o) => o.op === 'create' && o.ref === 'c1/meta'), 'ref da criação com o prefixo do item');
+  const fim = await ex.exec(ex.store(plan, EMAIL), EMAIL);
+  assert.ok(fim.ok, JSON.stringify(fim.erro));
+  const criada = [...fake.pages.values()].find((p) => read(p, 'metas', 'titulo') === 'Integrar sensores ao chassi');
+  assert.ok(read(fake.page(alvo.id), 'metas', 'bloqueadoPor').some((id) => id.replace(/-/g, '') === criada.id.replace(/-/g, '')), 'dependência ligada à meta recém-criada');
+  // item inválido bloqueia, mas aparece com o motivo
+  const p2 = await buildPlan('lote', { api, D, dados: { itens: [{ id: 'x', acao: 'meta.status', dados: { meta: alvo.id, status: 'Inexistente' } }, { id: 'y', acao: 'kpi.medir', dados: { kpi: k.id, sprint: D.sprint, valor: '3' } }] }, email: EMAIL });
+  assert.equal(p2.itens.find((i) => i.id === 'x').bloqueios.length, 1);
+  assert.ok(p2.bloqueios.length >= 1);
+  // rollover só sozinho
+  const p3 = await buildPlan('lote', { api, D, dados: { itens: [{ id: 'r', acao: 'rollover', dados: { sprint: D.sprint, metas: [], tarefas: [], medicoes: [] } }, itens[2]] }, email: EMAIL });
+  assert.ok(p3.bloqueios.some((b) => /sozinho/.test(b)));
+});

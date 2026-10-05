@@ -6,7 +6,7 @@ import { state, persist } from './state.js';
 import { hooks } from './hooks.js';
 import { portas, planejar, desenhar } from './layout.js';
 import { esc, toast, $ } from './util.js';
-import { requestWrite } from './plan-modal.js';
+import { stageChange } from './rascunho.js';
 
 const metaOf = (id) => S.I.metaById[id];
 
@@ -40,7 +40,7 @@ export function startConnect(e, card, side) {
     if (!target || target.dataset.meta === from) { toast('Solte sobre outra meta para ligar a dependência'); return; }
     const to = target.dataset.meta;
     if ((metaOf(to)?.bloq || []).includes(from)) { toast('Essa dependência já existe'); return; }
-    requestWrite('dependencia.criar', { bloqueada: to, bloqueadora: from });
+    stageChange('dependencia.criar', { bloqueada: to, bloqueadora: from });
   };
   document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
 }
@@ -139,13 +139,15 @@ export function drawArrows() {
   lista.forEach((g, i) => {
     const { p1, p2 } = ps[i];
     const crit = g.edges.some((e) => { const bl = metaOf(e.from); return bl && (!bl.sprints.includes(sprint) || bl.status === 'Não iniciada' || bl.status === 'Abortado'); });
+    const pend = g.edges.some((e) => (S.D.pendEdges || []).includes(`${e.from}>${e.to}`));
+    const rem = g.edges.every((e) => (S.D.remEdges || []).includes(`${e.from}>${e.to}`));
     const direta = g.pa.card && g.pb.card && g.edges.length === 1;
     const grupo = g.pa.grupo || g.pb.grupo;
     const titulo = g.edges.map((e) => `${metaOf(e.from)?.titulo || e.from} bloqueia ${metaOf(e.to)?.titulo || e.to}`).join('\n');
-    const acao = direta ? (canWrite() ? ' — clique para remover' : '') : grupo ? `\n(${S.I.byId[grupo]?.nome || 'grupo'} recolhido — clique para expandir)` : '';
+    const acao = rem ? ' — remoção no rascunho (clique para desfazer)' : pend ? ' — no rascunho, ainda não gravada (clique para desfazer)' : direta ? (canWrite() ? ' — clique para remover' : '') : grupo ? `\n(${S.I.byId[grupo]?.nome || 'grupo'} recolhido — clique para expandir)` : '';
     const off = g.tipo === 'guia' ? (nGuia++ % 3) * 3 : 0;
     const d = desenhar(g.tipo, p1, p2, { gx: gx0 - off, off });
-    out += `<path d="${d}" class="${crit ? 'crit' : ''}${grupo ? ' agr' : ''}" ${direta ? `data-edge="${g.edges[0].idx}"` : ''} ${grupo ? `data-grupo="${esc(grupo)}"` : ''} data-de="${esc(g.edges.map((e) => e.from).join(' '))}" data-para="${esc(g.edges.map((e) => e.to).join(' '))}" marker-end="url(#ah)"><title>${esc(titulo + acao)}</title></path>`;
+    out += `<path d="${d}" class="${crit ? 'crit' : ''}${grupo ? ' agr' : ''}${pend ? ' pend' : ''}${rem ? ' rem' : ''}" ${direta ? `data-edge="${g.edges[0].idx}"` : ''} ${grupo ? `data-grupo="${esc(grupo)}"` : ''} data-de="${esc(g.edges.map((e) => e.from).join(' '))}" data-para="${esc(g.edges.map((e) => e.to).join(' '))}" marker-end="url(#ah)"><title>${esc(titulo + acao)}</title></path>`;
     const [mx, my] = g.tipo === 'guia' ? [gx0 - off - 4, (p1.y + p2.y) / 2] : [(p1.x + p2.x) / 2, (p1.y + p2.y) / 2];
     if (g.edges.length > 1 || grupo) out += `<text class="lab n" x="${mx}" y="${my - 5}" text-anchor="middle">×${g.edges.length}</text>`;
     else if (crit) out += `<text class="lab" x="${mx}" y="${my - 6}" text-anchor="middle">bloqueio fora da sprint / não iniciado</text>`;
@@ -160,6 +162,11 @@ export function drawArrows() {
   });
   if (!canWrite()) { svg.querySelectorAll('path[data-edge]').forEach((p) => { p.style.pointerEvents = 'none'; }); return; }
   svg.querySelectorAll('path[data-edge]').forEach((p) => {
-    p.onclick = () => { const e = edges[+p.dataset.edge]; requestWrite('dependencia.remover', { bloqueada: e.to, bloqueadora: e.from }); };
+    p.onclick = () => {
+      const e = edges[+p.dataset.edge];
+      // remover uma dependência que está para ser removida = desfazer a remoção (volta a "criar")
+      if ((S.D.remEdges || []).includes(`${e.from}>${e.to}`)) stageChange('dependencia.criar', { bloqueada: e.to, bloqueadora: e.from });
+      else stageChange('dependencia.remover', { bloqueada: e.to, bloqueadora: e.from });
+    };
   });
 }
