@@ -1,5 +1,5 @@
 // Detalhe da meta (gaveta lateral) — portado do mock; as ações agora geram plano de escrita.
-import { S } from './store.js';
+import { S, canWrite } from './store.js';
 import { state } from './state.js';
 import { esc, toast, $ } from './util.js';
 import { hooks } from './hooks.js';
@@ -13,7 +13,7 @@ export function openDrawer(id) {
   const { D, I } = S;
   const m = I.metaById[id]; if (!m) return;
   const a = D.areas[m.area] || { nome: m.area };
-  const w = S.meta?.pode_gravar && !state.tv;
+  const w = canWrite();
   const bloqueando = D.metas.filter((x) => (x.bloq || []).includes(m.id));
   const body = $('#drawer-body');
   body.innerHTML = `<span class="eyebrow">Meta da sprint</span><h3>${esc(m.titulo)}</h3>

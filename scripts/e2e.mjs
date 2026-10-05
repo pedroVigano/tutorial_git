@@ -179,6 +179,36 @@ try {
   await page.close();
   await app.close();
 
+  // ---------------- modo TV: cabeçalho recolhido, edição continua ----------------
+  const tv = await start({});
+  const p3 = await browser.newPage({ viewport: { width: 1600, height: 1000 }, ignoreHTTPSErrors: true });
+  p3.on('pageerror', (e) => erros.push(e.message));
+  await p3.goto(`${tv.url}/?modo=tv`, { waitUntil: 'networkidle' });
+  await p3.waitForSelector('.card');
+  assert.ok((await p3.locator('header.top').boundingBox()).height < 30, 'cabeçalho recolhido no modo TV');
+  assert.ok(await p3.locator('[data-add]').count() > 0, 'modo TV mantém a edição');
+  assert.match(await p3.innerText('#user-chip'), /edição/);
+  await p3.hover('header.top');
+  assert.ok((await p3.locator('header.top').boundingBox()).height > 40, 'cabeçalho abre ao passar o mouse');
+  // painel Reunião em qualquer aba
+  await p3.click('#reuniao-btn');
+  await p3.waitForSelector('#reuniao-panel.open');
+  await p3.fill('#mt-txt', 'Decidimos priorizar o O2 nesta sprint.');
+  assert.match(await p3.innerText('#mt-prev'), /priorizar o O2/);
+  await p3.keyboard.press('Escape');
+  await p3.waitForFunction(() => !document.getElementById('reuniao-panel').classList.contains('open'));
+  // largura da coluna de desejos: arrastar a alça
+  const alca = p3.locator('.col-rs[data-col="wish"]').first();
+  const bx = await alca.boundingBox();
+  await p3.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2);
+  await p3.mouse.down();
+  await p3.mouse.move(bx.x + 120, bx.y + bx.height / 2, { steps: 4 });
+  await p3.mouse.up();
+  assert.ok(await p3.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--wish-w').trim() !== ''), 'largura da coluna de desejos ajustada');
+  ok('modo TV: cabeçalho recolhido com edição; painel Reunião; largura de coluna ajustável');
+  await p3.close();
+  await tv.app.close();
+
   // ---------------- leitor ----------------
   const leitor = await start({ EDITOR_EMAILS: 'outra.pessoa@bsvrobotics.com.br' });
   const p2 = await browser.newPage({ viewport: { width: 1600, height: 1000 }, ignoreHTTPSErrors: true });

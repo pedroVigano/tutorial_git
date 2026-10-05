@@ -21,6 +21,9 @@ export function buildIndex(D) {
 
 export const S = { D: null, I: null, meta: null };
 
+// Quem está na lista de editores pode montar o rascunho e gravar — inclusive no modo TV (só o cabeçalho recolhe).
+export const canWrite = () => !!S.meta?.pode_gravar;
+
 export function setData(payload) {
   S.D = payload.D;
   S.meta = payload.meta;

@@ -16,6 +16,8 @@ export const state = {
   closed: new Set(saved.closed || []),
   left: saved.left || null,
   theme: saved.theme || 'auto',
+  cols: saved.cols || {}, // larguras das colunas Árvore | Desejos das lanes (px)
+  tvPin: !!saved.tvPin,
   linking: null,
   connect: null,
   drag: null,
@@ -24,7 +26,7 @@ export const state = {
 
 export function persist() {
   const left = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--left'), 10) || null;
-  store.set('gt-state', { obj: state.obj, modo: state.modo, equipe: state.equipe, closed: [...state.closed], left, theme: state.theme });
+  store.set('gt-state', { obj: state.obj, modo: state.modo, equipe: state.equipe, closed: [...state.closed], left, theme: state.theme, cols: state.cols, tvPin: state.tvPin });
 }
 
 // Ordem dos cards por lane: preferência local (não vai para o Notion).

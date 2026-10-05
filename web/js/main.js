@@ -5,10 +5,10 @@ import { S, setData } from './store.js';
 import { state, persist } from './state.js';
 import { hooks } from './hooks.js';
 import { esc, toast, download, dm, quarterShift, $, $$ } from './util.js';
-import { renderBoard, applyAreaColors, initDivider } from './board.js';
+import { renderBoard, applyAreaColors, initDivider, initColumns } from './board.js';
 import { drawArrows } from './arrows.js';
 import { renderRollover } from './rollover.js';
-import { renderReuniao } from './reuniao.js';
+import { renderReuniao, openReuniao, closeReuniao, reuniaoAberta } from './reuniao.js';
 import { renderTrimestral } from './trimestral.js';
 import { closeModal } from './modal.js';
 import { closeDrawer } from './drawer.js';
@@ -50,11 +50,11 @@ function renderHeader() {
   const hora = new Date(D.lido_em_iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   $('#badge-data').textContent = `Notion lido às ${hora} · ↻`;
   $('#badge-data').title = `Dados do Notion de ${D.lido_em}. Clique para recarregar agora.`;
-  $('#user-chip').innerHTML = `${esc(meta.email)} · <b>${meta.pode_gravar && !state.tv ? 'edição' : 'leitura'}</b>${meta.auth === 'dev' ? ' · <span title="AUTH_MODE=dev: usuário local, sem login Google">dev</span>' : ''}${meta.modo === 'fixture' ? ' · <span title="NOTION_MODE=fixture: dados de demonstração (foto do mock de 14/09), gravações em memória">demo</span>' : ''}`;
+  $('#user-chip').innerHTML = `${esc(meta.email)} · <b>${meta.pode_gravar ? 'edição' : 'leitura'}</b>${meta.auth === 'dev' ? ' · <span title="AUTH_MODE=dev: usuário local, sem login Google">dev</span>' : ''}${meta.modo === 'fixture' ? ' · <span title="NOTION_MODE=fixture: dados de demonstração (foto do mock de 14/09), gravações em memória">demo</span>' : ''}`;
   const tv = $('#tv-btn');
   const pg = state.page !== 'board' ? `&pagina=${state.page}` : '';
   tv.href = state.tv ? `?${state.sprint != null ? `sprint=${state.sprint}` : ''}${pg}` : `?modo=tv${state.sprint != null ? `&sprint=${state.sprint}` : ''}${pg}`;
-  tv.title = state.tv ? 'Sair do modo TV' : 'Modo TV: tela grande, só leitura, atualiza sozinho';
+  tv.title = state.tv ? 'Sair do modo TV' : 'Modo TV: tela grande, cabeçalho recolhido, atualiza sozinho';
   const ban = $('#banner');
   const erros = (meta.avisos_schema || []).filter((a) => a.nivel === 'ERRO');
   if (meta.somente_leitura) {
@@ -64,8 +64,9 @@ function renderHeader() {
 }
 
 // ---------- páginas ----------
-const PAGES = ['board', 'trimestral', 'rollover', 'reuniao'];
+const PAGES = ['board', 'trimestral', 'rollover'];
 function showPage(p) {
+  if (p === 'reuniao') { openReuniao(); p = 'board'; } // link antigo da aba "Reunião & IA"
   if (!PAGES.includes(p)) p = 'board';
   state.page = p;
   $$('.nav button').forEach((x) => { if (x.dataset.page === p) x.setAttribute('aria-current', 'page'); else x.removeAttribute('aria-current'); });
@@ -75,14 +76,17 @@ function showPage(p) {
   render();
 }
 $$('.nav button').forEach((b) => { b.onclick = () => showPage(b.dataset.page); });
-$('#go-reuniao').onclick = () => showPage('reuniao');
+// Reunião: painel lateral disponível em todas as abas
+$('#reuniao-btn').onclick = () => (reuniaoAberta() ? closeReuniao() : openReuniao());
+$('#go-reuniao').onclick = openReuniao;
+$('#reuniao-close').onclick = closeReuniao;
 
 function render() {
   if (!S.D) return;
   renderHeader();
   if (state.page === 'board') renderBoard();
   if (state.page === 'rollover') renderRollover();
-  if (state.page === 'reuniao') renderReuniao();
+  if (reuniaoAberta()) renderReuniao();
   if (state.page === 'trimestral') renderTrimestral();
 }
 
@@ -136,6 +140,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   closeDrawer();
   if ($('#modal-bg').classList.contains('open')) closeModal();
+  else if (reuniaoAberta()) closeReuniao();
   if (state.linking) { state.linking = null; render(); }
 });
 window.addEventListener('resize', () => requestAnimationFrame(drawArrows));
@@ -147,9 +152,18 @@ setInterval(() => {
 }, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.D && Date.now() - Date.parse(S.D.lido_em_iso) > POLL_MS) load(false); });
 
+// ---------- modo TV: só o cabeçalho recolhe (abre ao passar o mouse ou fixado pelo 📌) ----------
+function applyTvPin() {
+  document.body.classList.toggle('tv-pin', !!state.tvPin);
+  $('#tv-pin').setAttribute('aria-pressed', String(!!state.tvPin));
+}
+$('#tv-pin').onclick = () => { state.tvPin = !state.tvPin; applyTvPin(); persist(); requestAnimationFrame(drawArrows); };
+
 // ---------- início ----------
 if (state.tv) document.body.classList.add('tv');
 applyTheme();
+applyTvPin();
 initDivider();
+initColumns();
 if (state.page !== 'board') showPage(state.page);
 load();

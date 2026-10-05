@@ -1,4 +1,4 @@
-// Screenshots do dashboard (Board, Rollover, Reunião, modo TV; claro e escuro) + erros de console.
+// Screenshots do dashboard (Tática, Trimestral, Rollover, painel Reunião, modo TV; claro e escuro) + erros de console.
 // Uso: suba o servidor (npm run dev) e rode `npm run screenshots -- [url] [pasta]`.
 // Chromium: usa o do Playwright pré-instalado (PLAYWRIGHT_BROWSERS_PATH) ou CHROMIUM_PATH.
 import { mkdirSync, existsSync, readdirSync } from 'node:fs';
@@ -37,7 +37,8 @@ await shot('board', '/');
 await shot('board-escuro', '/', { dark: true });
 await shot('board-objetivo', '/', { action: async (p) => { await p.click('.chip:nth-of-type(2)'); } });
 await shot('rollover', '/', { action: async (p) => { await p.click('[data-page="rollover"]'); } });
-await shot('reuniao', '/', { action: async (p) => { await p.click('[data-page="reuniao"]'); } });
+await shot('trimestral', '/', { action: async (p) => { await p.click('[data-page="trimestral"]'); await p.waitForSelector('.tq-grp', { timeout: 15000 }); } });
+await shot('reuniao', '/', { action: async (p) => { await p.click('#reuniao-btn'); await p.waitForSelector('#reuniao-panel.open #mt-prev'); } });
 await shot('tv', '/?modo=tv', { dark: true });
 await shot('drawer', '/', { action: async (p) => { await p.click('.card'); } });
 await shot('plano', '/', {

@@ -41,7 +41,7 @@ Navegador ──IAP (login Google)──► Cloud Run · Node 22 / Fastify ─�
 | ＋ registrar medição (coluna OKR ou R4 do rollover) | linha em 📈 Evolução de KPIs (`<KPI> — Sprint #NN`, KPI, Sprint, Valor, Data) ou troca do valor existente |
 | Rollover R1–R6 | cria a #N+1; revincula metas e tarefas marcadas; histórico (ou `Sprint_de_origem`, quando existir); medições; no fim, #N → Concluído e #N+1 → Em andamento |
 | Trimestral → Gravar no Notion | páginas novas em 🎯 OKRs Táticos (cópias com `Origem`, KRs/KPIs novos), `KPI` (+) nas medições religadas, edições e `Status` (Abortado / status final) |
-| Reunião & IA | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
+| 🎙 Reunião (painel do cabeçalho, em qualquer aba) | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
 
 Outros recursos:
 - **Trimestral** (aba ou `?pagina=trimestral`): reunião trimestral de P&D. Duas colunas pareadas linha a linha: à esquerda o trimestre revisado, à direita o planejado.
@@ -60,7 +60,8 @@ Outros recursos:
     - status final do trimestre revisado.
   - **Depois de gravar:** o pareamento é refeito pelo campo `Origem`. Refazer o mesmo rascunho não duplica páginas.
 - **Ordem dos OKRs:** objetivos, KRs e KPIs seguem a coluna `Ordem` do Notion, com os vazios no fim. Vale para o Board e para a Trimestral. Os KPIs são numerados dentro de cada KR.
-- **Modo TV** (`?modo=tv`): tela grande, só leitura.
+- **Modo TV** (`?modo=tv`): tela grande. Só o cabeçalho recolhe numa faixa fina; ele abre ao passar o mouse, ou fica aberto com 📌. Quem está na lista de editores continua editando.
+- **Larguras:** a coluna de OKRs (divisor) e as colunas Árvore e Desejos das lanes (alça no título da coluna) se ajustam arrastando. Duplo clique na alça volta ao padrão. Fica no navegador de cada pessoa.
 - **Tema:** claro, escuro ou automático.
 - **Filtro por equipe:** "Só P&D" esconde as metas de outras diretorias.
 - **Ordem dos cards:** fica no navegador de cada pessoa.

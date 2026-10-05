@@ -1,7 +1,6 @@
 // Página Rollover (página 9 do Lucid): fechamento mecânico da sprint. Nenhuma decisão é tomada aqui —
 // o que rola, rola por regra de status. A máquina calcula, o líder confere o plano de escrita e só então grava.
-import { S } from './store.js';
-import { state } from './state.js';
+import { S, canWrite } from './store.js';
 import { esc, fmt, $, $$ } from './util.js';
 import { hooks } from './hooks.js';
 import { requestWrite } from './plan-modal.js';
@@ -12,7 +11,7 @@ const ABERTAS_T = ['A Fazer', 'Em Andamento', 'Em Revisão', 'Bloqueada'];
 export function renderRollover() {
   const { D, I } = S;
   const el = $('#page-rollover');
-  const w = S.meta?.pode_gravar && !state.tv;
+  const w = canWrite();
   const cur = D.sprint; const nxt = cur + 1;
   const spc = D.sprints.find((s) => s.n === cur); const spn = D.sprints.find((s) => s.n === nxt);
   const metasSprint = D.metas.filter((m) => m.sprints.includes(cur) && !m.fora);

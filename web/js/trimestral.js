@@ -3,7 +3,7 @@
 // aborta-se ou acrescentam-se itens. Tudo fica num rascunho neste navegador até "Gravar no Notion", que mostra
 // um único plano de escrita (cópias com Origem, medições religadas, edições, abortos e status final).
 import * as api from './api.js';
-import { S, buildIndex } from './store.js';
+import { S, buildIndex, canWrite } from './store.js';
 import { state } from './state.js';
 import { esc, fmt, store, quarterShift, toast, $, $$ } from './util.js';
 import { kpiStatus, krStatus, objStatus, stColor } from './rules.js';
@@ -259,7 +259,7 @@ function chart(row, M) {
     const a = q4.v.alvo == null || q4.v.alvo === '' ? null : Number(q4.v.alvo);
     const ty = yOf(sc, a ?? (k?.alvo ?? (sc.lo + sc.hi) / 2));
     const lbl = a == null ? 'arraste para definir o alvo' : `alvo ${q4.v.direcao || ''} ${fmt(a)}${q4.v.unidade ? ` ${q4.v.unidade}` : ''}`;
-    s += `<g class="tq-tgt4 ${a == null ? 'vazio' : ''} ${state.tv ? '' : 'drag'}" data-slot="${esc(row.slot)}"><line class="hit" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><line class="t4" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><circle class="h" cx="${W - 22}" cy="${ty}" r="8"/><text class="tl4" x="${W - 38}" y="${ty - 8}" text-anchor="end">${esc(lbl)}</text></g>`;
+    s += `<g class="tq-tgt4 ${a == null ? 'vazio' : ''} drag" data-slot="${esc(row.slot)}"><line class="hit" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><line class="t4" x1="${MID + GAP}" x2="${W - 8}" y1="${ty}" y2="${ty}"/><circle class="h" cx="${W - 22}" cy="${ty}" r="8"/><text class="tl4" x="${W - 38}" y="${ty - 8}" text-anchor="end">${esc(lbl)}</text></g>`;
   }
   return `${s}</svg>`;
 }
@@ -273,22 +273,21 @@ const lbl = (txt, grau) => (txt ? `<span class="tq-lbl ${GRAU_CLS[grau]}">${esc(
 function q3Cell(M, x, grau) {
   if (!x) return '<div class="tq-cell vazio"></div>';
   const regra = finalPelaRegra(M.regra[x.id]);
-  const fim = state.tv ? '' : `<label class="tq-c">Status final <select data-fim="${x.id}"><option value="">não mudar${regra ? ` (regra: ${esc(regra)})` : ''}</option>${STATUS_FINAL.map((s) => `<option ${draft.fim[x.id] === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`;
+  const fim = `<label class="tq-c">Status final <select data-fim="${x.id}"><option value="">não mudar${regra ? ` (regra: ${esc(regra)})` : ''}</option>${STATUS_FINAL.map((s) => `<option ${draft.fim[x.id] === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>`;
   return `<div class="tq-cell q3"><div class="tq-h"><span class="eyebrow">${lbl(x.label, grau)} ${GRAU_TXT[grau]}</span><a href="${esc(x.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a></div><div class="t">${grau === 'Objetivo' ? `${esc(x.icone)} ` : ''}${esc(x.titulo)}</div><div class="tq-pills">${pills(M, x)}</div>${grau === 'KPI' ? scoreHTML(x) : ''}${fim ? `<div class="tq-ctl">${fim}</div>` : ''}</div>`;
 }
 
 function q4Cell(row, grau) {
-  const n = row.q4; const ro = state.tv;
+  const n = row.q4;
   if (!n || n.abortado) {
-    const restaurar = n && !n.notionAbortado && !n.porPai && !ro ? `<button type="button" class="btn small" data-restaurar="${esc(row.slot)}">↺ restaurar</button>` : '';
-    const dup = row.q3 && !n && !ro && (grau === 'Objetivo' || row.podeDup) ? `<button type="button" class="btn small" data-dup="${esc(row.q3.id)}" data-grau="${grau}">${grau === 'Objetivo' ? 'duplicar objetivo (com KRs e KPIs)' : grau === 'KPI' ? 'duplicar KPI' : 'duplicar KR (com KPIs)'} →</button>` : '';
+    const restaurar = n && !n.notionAbortado && !n.porPai ? `<button type="button" class="btn small" data-restaurar="${esc(row.slot)}">↺ restaurar</button>` : '';
+    const dup = row.q3 && !n && (grau === 'Objetivo' || row.podeDup) ? `<button type="button" class="btn small" data-dup="${esc(row.q3.id)}" data-grau="${grau}">${grau === 'Objetivo' ? 'duplicar objetivo (com KRs e KPIs)' : grau === 'KPI' ? 'duplicar KPI' : 'duplicar KR (com KPIs)'} →</button>` : '';
     const msg = n?.notionAbortado ? 'abortado no Notion' : n?.porPai ? 'abortado junto com o item principal' : n?.abortado ? 'abortado — não segue para o trimestre' : '';
     return `<div class="tq-cell vazio q4">${msg ? `<span class="hint">${msg}</span>` : ''}${dup}${restaurar}</div>`;
   }
   const tag = n.kind === 'copy' ? '<span class="pill st-run">cópia · a criar</span>' : n.kind === 'novo' ? '<span class="pill st-run">novo · a criar</span>' : `<span class="pill">no Notion</span>${edited(n) ? '<span class="pill st-warn">editado</span>' : ''}`;
   const origemTxt = n.kind === 'copy' ? ` <span class="tq-de">cópia de ${esc(n.src.label)}</span>` : '';
   const head = `<div class="tq-h"><span class="eyebrow">${lbl(n.label || (n.kind === 'copy' ? n.src.label : n.kind === 'novo' ? 'novo' : ''), grau)} ${GRAU_TXT[grau]}${origemTxt}</span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener" title="Abrir no Notion">↗</a>` : ''}</div>`;
-  if (ro) return `<div class="tq-cell q4">${head}<div class="t">${esc(n.v.titulo)}</div><div class="tq-pills">${tag}${grau === 'KPI' && n.v.alvo != null ? `<span class="pill">alvo ${esc(n.v.direcao || '')} ${fmt(Number(n.v.alvo))} ${esc(n.v.unidade || '')}</span>` : ''}</div></div>`;
   const s = esc(n.slot);
   const kpiCtl = grau === 'KPI' ? `<div class="tq-kctl"><label class="tq-c">Alvo <input type="number" step="any" data-campo="alvo" data-slot="${s}" value="${n.v.alvo ?? ''}"></label><label class="tq-c">Direção <select data-campo="direcao" data-slot="${s}"><option value=""></option>${DIRS.map((d) => `<option ${n.v.direcao === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label><label class="tq-c">Unidade <select data-campo="unidade" data-slot="${s}"><option value=""></option>${[...new Set([...UNIDADES, n.v.unidade].filter(Boolean))].map((u) => `<option ${n.v.unidade === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label></div>` : '';
   const add = grau === 'Objetivo' ? `<button type="button" class="btn small" data-add="Resultado-Chave" data-pai="${s}">＋ KR</button>` : grau === 'Resultado-Chave' ? `<button type="button" class="btn small" data-add="KPI" data-pai="${s}">＋ KPI</button>` : '';
@@ -320,8 +319,8 @@ function seletores() {
 
 function barra(M) {
   const c = contagem(M); const total = c.criar + c.editar + c.abortar + c.fim;
-  const pode = !!S.meta?.pode_gravar && !state.tv;
-  return `<div class="tq-bar"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span><span><b>${esc(triLabel(pg.plan))}</b> no Notion: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run" id="tq-cont">rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais</span><span class="spacer"></span>${state.tv ? '' : `<button class="btn small" id="tq-novo-obj">＋ objetivo em ${esc(triLabel(pg.plan))}</button><button class="btn small" id="tq-descartar" ${total ? '' : 'disabled'}>Descartar rascunho</button><button class="btn primary" id="tq-gravar" ${total && pode ? '' : 'disabled'} title="${pode ? 'Mostra o plano de escrita antes de gravar' : 'Somente leitura: o rascunho fica só neste navegador'}">Gravar no Notion${total ? ` (${total})` : ''}</button>`}</div>`;
+  const pode = canWrite();
+  return `<div class="tq-bar"><span><b>${esc(triLabel(pg.rev))}</b>: ${M.R.D.objetivos.length} objetivos · ${M.R.D.krs.length} KRs · ${M.R.D.kpis.length} KPIs</span><span><b>${esc(triLabel(pg.plan))}</b> no Notion: ${M.P.D.objetivos.length} objetivos · ${M.P.D.krs.length} KRs · ${M.P.D.kpis.length} KPIs</span><span class="pill st-run" id="tq-cont">rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais</span><span class="spacer"></span>${`<button class="btn small" id="tq-novo-obj">＋ objetivo em ${esc(triLabel(pg.plan))}</button><button class="btn small" id="tq-descartar" ${total ? '' : 'disabled'}>Descartar rascunho</button><button class="btn primary" id="tq-gravar" ${total && pode ? '' : 'disabled'} title="${pode ? 'Mostra o plano de escrita antes de gravar' : 'Somente leitura: o rascunho fica só neste navegador'}">Gravar no Notion${total ? ` (${total})` : ''}</button>`}</div>`;
 }
 
 function paint() {
@@ -367,7 +366,7 @@ function bind(el, M) {
   const contador = () => {
     const c = contagem(model()); const total = c.criar + c.editar + c.abortar + c.fim;
     const b = el.querySelector('#tq-cont'); if (b) b.textContent = `rascunho: ${c.criar} a criar · ${c.editar} editados · ${c.abortar} abortados · ${c.fim} status finais`;
-    const g = el.querySelector('#tq-gravar'); if (g) { g.disabled = !(total && S.meta?.pode_gravar && !state.tv); g.textContent = `Gravar no Notion${total ? ` (${total})` : ''}`; }
+    const g = el.querySelector('#tq-gravar'); if (g) { g.disabled = !(total && canWrite()); g.textContent = `Gravar no Notion${total ? ` (${total})` : ''}`; }
     const d = el.querySelector('#tq-descartar'); if (d) d.disabled = !total;
   };
   $$('[data-dup]', el).forEach((b) => { b.onclick = () => { marcarDup(M, b.dataset.dup, b.dataset.grau); repaint(); }; });

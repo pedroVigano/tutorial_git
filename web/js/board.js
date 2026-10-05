@@ -1,6 +1,6 @@
 // Página Board: barra de objetivos, coluna OKR (KPIs com série por sprint), lanes Projeto › Sistema ›
 // Subsistema com desejos e metas, legenda e alertas. Portado do mock v2.2 — agora com dados ao vivo.
-import { S } from './store.js';
+import { S, canWrite } from './store.js';
 import { state, persist, order } from './state.js';
 import { esc, fmt, dm, toast, $, $$ } from './util.js';
 import { kpiLast, kpiStatus, krStatus, objStatus, coverage, stColor, visibleProjects, computeAlerts, OUTROS } from './rules.js';
@@ -11,7 +11,7 @@ import { openMetaForm } from './meta-form.js';
 import { openKpiForm } from './kpi-form.js';
 import { drawArrows, startConnect } from './arrows.js';
 
-export const canWrite = () => !!S.meta?.pode_gravar && !state.tv;
+export { canWrite };
 
 // ---------- cores das equipes (vêm do snapshot) ----------
 export function applyAreaColors(areas) {
@@ -216,7 +216,7 @@ function renderLanes() {
     const nMetas = lanes.reduce((s, n) => s + metasIn(n.id).filter(showMeta).length, 0);
     const wrap = document.createElement('div');
     wrap.className = `proj${closed ? ' closed' : ''}`;
-    wrap.innerHTML = `<div class="proj-h" data-toggle="${pid}"><h2>${esc(p.nome)}</h2><span class="cnt">${lanes.length} lanes · ${nMetas} metas na #${D.sprint}${pid === OUTROS ? '' : (p.resp ? ` · 👤 ${esc(p.resp)}` : ' · <span style="color:var(--warn)">⚠ projeto sem responsável</span>')}</span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="font-size:11px" onclick="event.stopPropagation()">Notion ↗</a>` : ''}<span class="car">▾</span></div><div class="proj-b"><div class="cols-h"><div>Projeto › Sistema › Subsistema</div><div>Desejos em análise (sem requisito)</div><div>Metas da sprint #${D.sprint}</div></div><div class="groups"></div></div>`;
+    wrap.innerHTML = `<div class="proj-h" data-toggle="${pid}"><h2>${esc(p.nome)}</h2><span class="cnt">${lanes.length} lanes · ${nMetas} metas na #${D.sprint}${pid === OUTROS ? '' : (p.resp ? ` · 👤 ${esc(p.resp)}` : ' · <span style="color:var(--warn)">⚠ projeto sem responsável</span>')}</span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="font-size:11px" onclick="event.stopPropagation()">Notion ↗</a>` : ''}<span class="car">▾</span></div><div class="proj-b"><div class="cols-h"><div>Projeto › Sistema › Subsistema${RS('lane')}</div><div>Desejos em análise (sem requisito)${RS('wish')}</div><div>Metas da sprint #${D.sprint}</div></div><div class="groups"></div></div>`;
     const groups = wrap.querySelector('.groups');
     const bySys = {};
     lanes.forEach((n) => { const k = n.pai || n.id; (bySys[k] = bySys[k] || []).push(n); });
@@ -343,6 +343,39 @@ export function renderLog() {
 
 export function renderBoard() {
   renderObjbar(); renderOKR(); renderLanes(); renderLegend(); renderAlerts(); renderLog();
+}
+
+// ---------- larguras das colunas das lanes (Árvore | Desejos; Metas ocupa o resto) — preferência local ----------
+const COLS = { lane: { v: '--lane-w', min: 160, max: 640 }, wish: { v: '--wish-w', min: 120, max: 640 } };
+const RS = (col) => `<span class="col-rs" data-col="${col}" title="Arraste para ajustar a largura · duplo clique volta ao padrão"></span>`;
+const setCol = (col, w) => {
+  const r = document.documentElement.style;
+  if (w == null) r.removeProperty(COLS[col].v); else r.setProperty(COLS[col].v, `${w}px`);
+};
+export function initColumns() {
+  Object.entries(state.cols || {}).forEach(([c, w]) => { if (COLS[c]) setCol(c, w); });
+  const lanes = $('#lanes');
+  lanes.addEventListener('pointerdown', (e) => {
+    const h = e.target.closest('.col-rs'); if (!h) return;
+    e.preventDefault(); e.stopPropagation();
+    const col = h.dataset.col; const cell = h.parentElement;
+    const z = parseFloat(getComputedStyle(document.body).zoom) || 1;
+    const x0 = e.clientX; const w0 = cell.offsetWidth;
+    h.classList.add('on'); h.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const w = Math.round(Math.min(COLS[col].max, Math.max(COLS[col].min, w0 + (ev.clientX - x0) / z)));
+      setCol(col, w); state.cols = { ...state.cols, [col]: w };
+      requestAnimationFrame(drawArrows);
+    };
+    const up = () => { h.classList.remove('on'); h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); persist(); };
+    h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+  });
+  lanes.addEventListener('dblclick', (e) => {
+    const h = e.target.closest('.col-rs'); if (!h) return;
+    const { [h.dataset.col]: _, ...rest } = state.cols; state.cols = rest;
+    setCol(h.dataset.col, null); persist(); requestAnimationFrame(drawArrows);
+  });
+  lanes.addEventListener('click', (e) => { if (e.target.closest('.col-rs')) e.stopPropagation(); }, true);
 }
 
 // divisor redimensionável (preferência local)

@@ -1,7 +1,7 @@
 // Setas de dependência entre metas (estilo Miro), portadas do mock v2.2.
 // Arrastar de uma bolinha da meta bloqueadora até a meta bloqueada → plano "Bloqueado por".
 // Clicar numa seta → plano de remoção da dependência.
-import { S } from './store.js';
+import { S, canWrite } from './store.js';
 import { state } from './state.js';
 import { esc, toast, $ } from './util.js';
 import { requestWrite } from './plan-modal.js';
@@ -70,11 +70,11 @@ export function drawArrows() {
     const dir = { n: [0, -1], s: [0, 1], w: [-1, 0], e: [1, 0] };
     const c = Math.max(30, Math.min(140, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2));
     const d = `M${p1.x},${p1.y} C${p1.x + dir[sa][0] * c},${p1.y + dir[sa][1] * c} ${p2.x + dir[sb][0] * c},${p2.y + dir[sb][1] * c} ${p2.x},${p2.y}`;
-    out += `<path d="${d}" class="${crit ? 'crit' : ''}" data-edge="${idx}" marker-end="url(#ah)"><title>${esc(blocker ? blocker.titulo : e.from)} bloqueia ${esc(metaOf(e.to)?.titulo || e.to)}${S.meta?.pode_gravar && !state.tv ? ' — clique para remover' : ''}</title></path>`;
+    out += `<path d="${d}" class="${crit ? 'crit' : ''}" data-edge="${idx}" marker-end="url(#ah)"><title>${esc(blocker ? blocker.titulo : e.from)} bloqueia ${esc(metaOf(e.to)?.titulo || e.to)}${canWrite() ? ' — clique para remover' : ''}</title></path>`;
     if (crit) out += `<text class="lab" x="${(p1.x + p2.x) / 2}" y="${(p1.y + p2.y) / 2 - 6}" text-anchor="middle">bloqueio fora da sprint / não iniciado</text>`;
   });
   svg.innerHTML = out;
-  if (!S.meta?.pode_gravar || state.tv) { svg.querySelectorAll('path[data-edge]').forEach((p) => { p.style.pointerEvents = 'none'; }); return; }
+  if (!canWrite()) { svg.querySelectorAll('path[data-edge]').forEach((p) => { p.style.pointerEvents = 'none'; }); return; }
   svg.querySelectorAll('path[data-edge]').forEach((p) => {
     p.onclick = () => { const e = edges[+p.dataset.edge]; requestWrite('dependencia.remover', { bloqueada: e.to, bloqueadora: e.from }); };
   });
