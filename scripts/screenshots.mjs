@@ -40,14 +40,15 @@ await shot('rollover', '/', { action: async (p) => { await p.click('[data-page="
 await shot('trimestral', '/', { action: async (p) => { await p.click('[data-page="trimestral"]'); await p.waitForSelector('.tq-grp', { timeout: 15000 }); } });
 await shot('operacional', '/', { action: async (p) => { await p.click('[data-page="operacional"]'); await p.waitForSelector('.kanban'); } });
 await shot('eu', '/', { action: async (p) => { await p.click('[data-page="eu"]'); await p.waitForSelector('#page-eu .page-h'); } });
-await shot('reuniao', '/', { action: async (p) => { await p.click('#reuniao-btn'); await p.waitForSelector('#reuniao-panel.open #mt-prev'); } });
+await shot('reuniao', '/', { action: async (p) => { await p.click('#reuniao-btn'); await p.waitForSelector('#reuniao-panel.open #mt-txt'); } });
 await shot('tv', '/?modo=tv', { dark: true });
 await shot('drawer', '/', { action: async (p) => { await p.click('.card'); } });
-await shot('plano', '/', {
+await shot('revisao', '/', {
   action: async (p) => {
     await p.click('.card');
     await p.click('#d-abort');
-    await p.waitForSelector('.plan-t, .plan-bloq');
+    await p.click('#rascunho-btn');
+    await p.waitForSelector('#review .rv-plan .plan-t, #review .plan-bloq');
   },
 });
 await browser.close();
