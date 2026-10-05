@@ -8,7 +8,7 @@ const RELACOES_USADAS = {
   okrs: ['pai', 'area', 'projetos'],
   projetos: ['pai', 'area'],
   desejos: ['projetos'],
-  tarefas: ['meta', 'sprint'],
+  tarefas: ['meta', 'sprint', 'subsistema', 'area'],
 };
 
 // Relações acima de 25 itens vêm cortadas: busca a lista completa e guarda em page.__rel.
@@ -41,6 +41,19 @@ export function pickSprint(sprintPages, requestedN, today = new Date().toISOStri
 }
 
 const userCache = new Map();
+// Pessoas do workspace (para a aba Eu e para escolher responsáveis): lidas no máximo a cada 1 h.
+let pessoasCache = { em: 0, lista: [] };
+async function listarPessoas(api) {
+  if (Date.now() - pessoasCache.em < 3_600_000) return pessoasCache.lista;
+  try {
+    const us = await api.listUsers();
+    pessoasCache = { em: Date.now(), lista: us.filter((u) => u.type === 'person').map((u) => ({ id: u.id, nome: u.name || null, email: u.person?.email || null })) };
+  } catch {
+    pessoasCache = { em: Date.now(), lista: [] }; // sem permissão de listar usuários: o dashboard segue sem
+  }
+  return pessoasCache.lista;
+}
+export const _limparPessoas = () => { pessoasCache = { em: 0, lista: [] }; };
 
 export async function loadRaw(api, { sprint: requestedN, tri: requestedTri, today } = {}) {
   const [sprints, areas, projetos, desejos] = await Promise.all([
@@ -110,8 +123,11 @@ export async function loadRaw(api, { sprint: requestedN, tri: requestedTri, toda
     try { const u = await api.retrieveUser(id); userCache.set(id, u.name || null); } catch { userCache.set(id, null); }
   }));
 
+  const pessoas = await listarPessoas(api);
+
   return {
     lidoEm: new Date().toISOString(),
+    pessoas,
     tri,
     sprintId: sel.page.id,
     sprints, areas, objetivos, krs, kpis, medicoes, projetos, metas, metasExtra, okrsExtra, tarefas, desejos,

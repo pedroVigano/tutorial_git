@@ -125,6 +125,27 @@ export function createExecutor({ api, audit = () => {} }) {
         await api.appendChildren(page.id, novos, children[last].id);
         return { texto: `linha acrescentada em "${op.heading}"`, url: page.url };
       }
+      case 'registro': {
+        // "## 🗣️ Registro de reuniões" (criada no fim se não existir) + "### cabeçalho" + bullets com rótulo
+        const page = await api.retrievePage(pageId);
+        const children = await api.listChildren(page.id);
+        const alvo = normHeading(op.heading);
+        const isHeading = (b) => /^heading_[123]$/.test(b.type);
+        const level = (b) => Number(b.type.slice(-1));
+        const idx = children.findIndex((b) => isHeading(b) && normHeading(blockText(b)).endsWith(alvo));
+        const novos = [blocks.h3(op.titulo), ...op.itens.map(([r, t]) => blocks.rotulo(r, urlOf(t)))];
+        if (idx < 0) {
+          await api.appendChildren(page.id, [blocks.h2(op.heading), ...novos]);
+          return { texto: `"${op.heading}" criada com a entrada de ${op.titulo.split(' · ')[0]}`, url: page.url };
+        }
+        let last = idx;
+        for (let i = idx + 1; i < children.length; i += 1) {
+          if (isHeading(children[i]) && level(children[i]) <= level(children[idx])) break;
+          last = i;
+        }
+        await api.appendChildren(page.id, novos, children[last].id);
+        return { texto: `entrada acrescentada em "${op.heading}"`, url: page.url };
+      }
       default:
         throw new Error(`operação desconhecida: ${op.op}`);
     }

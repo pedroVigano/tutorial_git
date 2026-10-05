@@ -270,6 +270,10 @@ export function createFakeNotion(state = {}) {
       },
     },
     users: {
+      async list({ start_cursor, page_size }) {
+        log.push(['users.list']);
+        return paginateArr(structuredClone([...users.values()]), start_cursor, page_size);
+      },
       async retrieve({ user_id }) {
         log.push(['users.retrieve', user_id]);
         const u = users.get(user_id);

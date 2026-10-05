@@ -278,3 +278,50 @@ test('lote: plano único do rascunho — meta nova + dependência com ela + medi
   const p3 = await buildPlan('lote', { api, D, dados: { itens: [{ id: 'r', acao: 'rollover', dados: { sprint: D.sprint, metas: [], tarefas: [], medicoes: [] } }, itens[2]] }, email: EMAIL });
   assert.ok(p3.bloqueios.some((b) => /sozinho/.test(b)));
 });
+
+test('tarefas: criar (ligada a meta nova do mesmo lote), mudar status com aviso do gate, editar responsável e prazo', async () => {
+  const { fake, api, D, ex, metasComSub } = await setup();
+  const m = metasComSub[0];
+  const pessoa = D.pessoas[0];
+  const itens = [
+    { id: 'm1', acao: 'meta.criar', dados: { titulo: 'Calibrar sensor de chuva', area: 'sw', sprint: D.sprint, subs: m.subs, tmp: 'tmp:m1' } },
+    { id: 't1', acao: 'tarefa.criar', dados: { titulo: 'Montar bancada do sensor', meta: 'tmp:m1', subs: m.subs, resp: [pessoa.id], area: 'sw', sprint: D.sprint, prazo: '2026-09-25', prioridade: 'P1 - Avançar' } },
+  ];
+  const plan = await buildPlan('lote', { api, D, dados: { itens }, email: EMAIL });
+  assert.deepEqual(plan.bloqueios, []);
+  const fim = await ex.exec(ex.store(plan, EMAIL), EMAIL);
+  assert.ok(fim.ok, JSON.stringify(fim.erro));
+  const t = [...fake.pages.values()].find((p) => read(p, 'tarefas', 'titulo') === 'Montar bancada do sensor');
+  const meta = [...fake.pages.values()].find((p) => read(p, 'metas', 'titulo') === 'Calibrar sensor de chuva');
+  assert.ok(read(t, 'tarefas', 'meta').some((id) => id.replace(/-/g, '') === meta.id.replace(/-/g, '')), 'tarefa ligada à meta nova');
+  assert.equal(read(t, 'tarefas', 'prioridade'), 'P1 - Avançar');
+  assert.equal(read(t, 'tarefas', 'prazo').start, '2026-09-25');
+  // status: Em Andamento é gravado como "Fazendo" (nome atual no Notion) e lido de volta como Em Andamento
+  const tid = t.id;
+  const p1 = await buildPlan('tarefa.status', { api, D, dados: { tarefa: tid, status: 'Em Andamento' }, email: EMAIL });
+  assert.ok((await ex.exec(ex.store(p1, EMAIL), EMAIL)).ok);
+  assert.equal(t.properties.Status.status.name, 'Fazendo');
+  const p2 = await buildPlan('tarefa.status', { api, D, dados: { tarefa: tid, status: 'Concluída' }, email: EMAIL });
+  assert.ok(p2.avisos.some((a) => /sem passar por Em Revisão/.test(a)) && p2.avisos.some((a) => /Gate de conclusão/.test(a)));
+  const p3 = await buildPlan('tarefa.editar', { api, D, dados: { tarefa: tid, prazo: '2026-10-02', resp: [] }, email: EMAIL });
+  assert.equal(p3.linhas.length, 2);
+  assert.ok((await ex.exec(ex.store(p3, EMAIL), EMAIL)).ok);
+  assert.deepEqual(read(t, 'tarefas', 'responsavel'), []);
+});
+
+test('registro de reunião: cria "🗣️ Registro de reuniões" na primeira vez e acrescenta a entrada depois, sem apagar', async () => {
+  const { fake, api, D, ex, metasComSub } = await setup();
+  const m = metasComSub[1];
+  const dados = (disc) => ({ base: 'metas', pagina: m.id, tipo: 'Operacional', data: '2026-10-05', participantes: ['Ana', 'Beto'], discussao: disc, decisoes: 'Seguir com o plano B' });
+  for (const disc of ['Primeira conversa', 'Segunda conversa']) {
+    const p = await buildPlan('pagina.registro', { api, D, dados: dados(disc), email: EMAIL });
+    assert.deepEqual(p.bloqueios, []);
+    assert.ok((await ex.exec(ex.store(p, EMAIL), EMAIL)).ok);
+  }
+  const textos = fake.blocksOf(m.id).map((b) => `${b.type}:${blockText(b)}`);
+  assert.equal(textos.filter((t) => t === 'heading_2:🗣️ Registro de reuniões').length, 1, 'uma seção só');
+  assert.equal(textos.filter((t) => t === 'heading_3:05/10/2026 · Operacional · ⬜ Conferido por —').length, 2);
+  assert.ok(textos.includes('bulleted_list_item:Discussão: Primeira conversa') && textos.includes('bulleted_list_item:Discussão: Segunda conversa'));
+  const vazio = await buildPlan('pagina.registro', { api, D, dados: { ...dados(''), discussao: '' }, email: EMAIL });
+  assert.ok(vazio.bloqueios.length);
+});

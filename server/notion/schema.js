@@ -97,11 +97,16 @@ export const BASES = {
         name: 'Status', type: 'status',
         options: ['A Fazer', 'Fazendo', 'Em Revisão', 'Concluída', 'Bloqueada', 'Abortada'],
         aliases: { Fazendo: 'Em Andamento' },
+        grava: true,
       },
       sprint: { name: 'Sprint', type: 'relation', target: 'sprints' },
       meta: { name: '🏁 Metas da Sprint', type: 'relation', target: 'metas' },
       subsistema: { name: 'Subsistema', type: 'relation', target: 'projetos' },
       responsavel: { name: 'Responsável', type: 'people' },
+      // abas Operacional e Eu (conferidos em 05/10/2026)
+      prazo: { name: 'Prazo', type: 'date' },
+      prioridade: { name: 'Prioridade', type: 'select', options: ['P0 - Finalizar', 'P1 - Avançar', 'P2 - Se Possível'] },
+      area: { name: '🔼 Área', type: 'relation', target: 'areas' },
     },
   },
   areas: {
@@ -151,6 +156,7 @@ export const SECOES = {
   origem: 'Origem',
   historico: 'Histórico de sprints',
   decisaoTatica: 'Decisão da reunião tática',
+  registro: '🗣️ Registro de reuniões',
 };
 
 export const spec = (base, key) => {

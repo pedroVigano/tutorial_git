@@ -1,6 +1,6 @@
 // Páginas cruas do Notion → objeto `D` no mesmo formato do mock v2.2 (função pura, testada com fixtures).
 import { read, titleOf, iconOf, normId, withDashes } from '../notion/props.js';
-import { DIRETORIA, TIPOS_OCULTOS } from '../notion/schema.js';
+import { DIRETORIA, TIPOS_OCULTOS, has } from '../notion/schema.js';
 import { areaDisplay, normName } from '../display.js';
 
 const ID = (x) => withDashes(normId(x));
@@ -34,7 +34,7 @@ const curto = (titulo, max = 28) => {
 };
 
 // Status do Notion e trimestres (multi-select) de um item de OKR.
-const okrMeta = (p) => ({ status: read(p, 'okrs', 'status') || null, trimestres: read(p, 'okrs', 'trimestre'), ordem: read(p, 'okrs', 'ordem'), origem: read(p, 'okrs', 'origem').map(ID) });
+const okrMeta = (p) => ({ status: read(p, 'okrs', 'status') || null, trimestres: read(p, 'okrs', 'trimestre'), ordem: read(p, 'okrs', 'ordem'), origem: read(p, 'okrs', 'origem').map(ID), resp_ids: read(p, 'okrs', 'responsavel').map((u) => u.id) });
 // Ordem do Notion (vazia vai para o fim); empate pelo critério anterior.
 const porOrdem = (a, b) => (read(a, 'okrs', 'ordem') ?? Infinity) - (read(b, 'okrs', 'ordem') ?? Infinity) || 0;
 
@@ -88,7 +88,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     nodes.set(ID(p.id), {
       id: ID(p.id), pai: first(rel(p, 'projetos', 'pai')), tipo: read(p, 'projetos', 'tipo') || '—',
       nome: titleOf(p), status: read(p, 'projetos', 'status') || '—', codigo: read(p, 'projetos', 'codigo') || null,
-      resp: resp ? (resp.nome || users[resp.id] || `pessoa ${resp.id.slice(0, 4)}`) : null,
+      resp: resp ? (resp.nome || users[resp.id] || `pessoa ${resp.id.slice(0, 4)}`) : null, resp_id: resp ? resp.id : null,
       areas: keysOf(rel(p, 'projetos', 'area')), url: p.url,
     });
   }
@@ -210,6 +210,11 @@ export function buildSnapshot(raw, { sprintN } = {}) {
       id: ID(p.id), url: p.url, titulo: titleOf(p), status: read(p, 'tarefas', 'status') || '—',
       metas: rel(p, 'tarefas', 'meta'), sprints: rel(p, 'tarefas', 'sprint').map(sprintNOf).filter((n) => n != null).sort((a, b) => a - b),
       resp: read(p, 'tarefas', 'responsavel').map((u) => u.nome || users[u.id] || `pessoa ${u.id.slice(0, 4)}`).join(', ') || null,
+      resp_ids: read(p, 'tarefas', 'responsavel').map((u) => u.id),
+      subs: relArvore(rel(p, 'tarefas', 'subsistema')).subs,
+      area: keysOf(rel(p, 'tarefas', 'area'))[0] || null,
+      prazo: read(p, 'tarefas', 'prazo')?.start?.slice(0, 10) || null,
+      prioridade: read(p, 'tarefas', 'prioridade') || null,
     };
     for (const m of t.metas) { const l = tarefasPorMeta.get(m) || []; l.push(t); tarefasPorMeta.set(m, l); }
     return t;
@@ -293,6 +298,12 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     }
   }
 
+  // pessoas: as do workspace (com e-mail, quando a integração pode ler) + as citadas como responsáveis
+  const pessoas = new Map((raw.pessoas || []).map((u) => [u.id, { id: u.id, nome: u.nome || users[u.id] || null, email: u.email || null }]));
+  const citar = (id, nome) => { if (id && !pessoas.has(id)) pessoas.set(id, { id, nome: nome || users[id] || null, email: null }); };
+  for (const n of nodes.values()) citar(n.resp_id, n.resp);
+  for (const t of tarefas) t.resp_ids.forEach((id, i) => citar(id, (t.resp || '').split(', ')[i]));
+
   const lido = raw.lidoEm;
   return {
     lido_em: `${fmtLido(lido)} (America/Sao_Paulo)`,
@@ -304,6 +315,8 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     areas,
     projetos: Object.fromEntries(visibleRoots.map((r) => [r, nodes.get(r)?.url || null])),
     objetivos, krs, kpis, tree, metas, tarefas, desejos,
+    campos: { okrResponsavel: has('okrs', 'responsavel') },
+    pessoas: [...pessoas.values()].sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')),
     ...(ocultos.length ? { ocultos } : {}),
   };
 }

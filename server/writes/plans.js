@@ -515,6 +515,152 @@ function medicaoPlano(k, s, valor, data) {
   return { titulo: `Medição: ${k.titulo.slice(0, 60)} — #${s.n}`, linhas, ops, avisos: [] };
 }
 
+// ---------------------------------------------------------------- tarefas (abas Operacional e Eu)
+const STATUS_T = ['A Fazer', 'Em Andamento', 'Em Revisão', 'Concluída', 'Bloqueada', 'Abortada'];
+const nomePessoa = (D, id) => (D.pessoas || []).find((p) => p.id === id)?.nome || `pessoa ${String(id).slice(0, 4)}`;
+async function lerTarefa(api, id) {
+  const page = await api.retrievePage(id);
+  const rel = async (key) => (await api.relationIds(page, 'tarefas', key)).map(ID);
+  return {
+    page, titulo: read(page, 'tarefas', 'titulo'), status: read(page, 'tarefas', 'status'),
+    resp: read(page, 'tarefas', 'responsavel').map((u) => u.id), prazo: read(page, 'tarefas', 'prazo')?.start || null,
+    prioridade: read(page, 'tarefas', 'prioridade'), subs: await rel('subsistema'), metas: await rel('meta'),
+  };
+}
+// Gate de conclusão (Lucid pág. 6): Em Revisão → Concluída pelo responsável do subsistema, com resultados
+// verificados, documentação do subsistema e requisito atualizados. Vira aviso no plano (não bloqueia).
+function avisosGate(D, t, novo, email) {
+  if (novo !== 'Concluída' || t.status === 'Concluída') return [];
+  const av = [];
+  if (t.status !== 'Em Revisão') av.push(`"${t.titulo}" vai para Concluída sem passar por Em Revisão.`);
+  av.push('Gate de conclusão: resultados verificados + documentação do subsistema atualizada + requisito atualizado (→ Aprovado), quando houver.');
+  const nodes = new Map(D.tree.map((n) => [n.id, n]));
+  const resps = [...new Set(t.subs.map((s) => nodes.get(s)?.resp_id).filter(Boolean))];
+  const meu = (D.pessoas || []).find((p) => p.email && p.email.toLowerCase() === String(email).toLowerCase());
+  if (resps.length && !(meu && resps.includes(meu.id))) av.push(`Quem conclui a revisão é o responsável do subsistema (${resps.map((id) => nomePessoa(D, id)).join(', ')}).`);
+  return av;
+}
+
+Object.assign(ACOES, {
+  async 'tarefa.criar'({ D, dados }) {
+    const N = namer(D);
+    const titulo = String(dados.titulo || '').trim();
+    const sprint = N.sprintN(dados.sprint ?? D.sprint);
+    const status = dados.status || 'A Fazer';
+    const meta = dados.meta || null; // id ou referência de meta nova do mesmo lote
+    const subs = (dados.subs || []).map(ID);
+    const resp = (dados.resp || []).map(ID);
+    const area = dados.area ? N.areaKey(dados.area) : null;
+    const bloqueios = []; const avisos = [];
+    if (!titulo) bloqueios.push('A tarefa precisa de um título.');
+    if (!sprint) bloqueios.push(`Sprint #${dados.sprint} não encontrada.`);
+    if (!STATUS_T.includes(status)) bloqueios.push(`Status inválido: ${status}`);
+    if (dados.prioridade && !BASES.tarefas.props.prioridade.options.includes(dados.prioridade)) bloqueios.push(`Prioridade inválida: ${dados.prioridade}`);
+    if (!meta) avisos.push('Regra do modelo: a tarefa liga a uma Meta da Sprint.');
+    if (!subs.length) avisos.push('A tarefa liga ao subsistema dela (é quem revisa).');
+    if (!resp.length) avisos.push('Tarefa sem responsável.');
+    const props = {
+      titulo, status, sprint: sprint ? [sprint.id] : [], ...(meta ? { meta: [typeof meta === 'string' ? ID(meta) : meta] } : {}),
+      subsistema: subs, responsavel: resp, ...(area ? { area: [area.id] } : {}),
+      ...(dados.prazo ? { prazo: dados.prazo } : {}), ...(dados.prioridade ? { prioridade: dados.prioridade } : {}),
+    };
+    const nova = pag(null, titulo); const B = BASES.tarefas.props; const T = BASES.tarefas.titulo;
+    const nomeMeta = typeof meta === 'string' ? N.meta(ID(meta)) : meta ? '(meta nova deste rascunho)' : '—';
+    const linhas = [
+      { base: T, pagina: nova, campo: B.titulo.name, atual: '', novo: titulo },
+      { base: T, pagina: nova, campo: B.status.name, atual: '', novo: status },
+      { base: T, pagina: nova, campo: B.meta.name, atual: '', novo: nomeMeta },
+      { base: T, pagina: nova, campo: B.subsistema.name, atual: '', novo: lista(subs, N.sub) },
+      { base: T, pagina: nova, campo: B.responsavel.name, atual: '', novo: resp.map((id) => nomePessoa(D, id)).join(', ') || '—' },
+      { base: T, pagina: nova, campo: B.sprint.name, atual: '', novo: sprint ? `#${sprint.n}` : '—' },
+      ...(area ? [{ base: T, pagina: nova, campo: B.area.name, atual: '', novo: area.nome }] : []),
+      ...(dados.prazo ? [{ base: T, pagina: nova, campo: B.prazo.name, atual: '', novo: dados.prazo.split('-').reverse().join('/') }] : []),
+      ...(dados.prioridade ? [{ base: T, pagina: nova, campo: B.prioridade.name, atual: '', novo: dados.prioridade }] : []),
+    ];
+    const ops = [{ op: 'create', base: 'tarefas', ref: 'tarefa', props, dedupe: { key: 'titulo', value: titulo, sprint: sprint?.id } }];
+    return { titulo: `Criar tarefa "${titulo}"`, linhas, ops, avisos, bloqueios };
+  },
+
+  async 'tarefa.status'({ api, D, dados, email }) {
+    const t = await lerTarefa(api, ID(dados.tarefa));
+    const status = dados.status; const bloqueios = [];
+    if (!STATUS_T.includes(status)) bloqueios.push(`Status inválido: ${status}`);
+    if (status === t.status) bloqueios.push(`A tarefa já está "${status}".`);
+    return {
+      titulo: `Tarefa "${t.titulo}" → ${status}`,
+      linhas: [{ base: BASES.tarefas.titulo, pagina: pag(t.page, t.titulo), campo: BASES.tarefas.props.status.name, atual: t.status, novo: status }],
+      ops: [{ op: 'set', base: 'tarefas', pageId: t.page.id, key: 'status', value: status, expect: t.status }],
+      avisos: avisosGate(D, t, status, email), bloqueios,
+    };
+  },
+
+  async 'tarefa.editar'({ api, D, dados }) {
+    const N = namer(D);
+    const t = await lerTarefa(api, ID(dados.tarefa));
+    const P = pag(t.page, t.titulo); const B = BASES.tarefas.props; const T = BASES.tarefas.titulo;
+    const linhas = []; const ops = []; const bloqueios = [];
+    if (dados.titulo != null && dados.titulo.trim() && dados.titulo.trim() !== t.titulo) {
+      ops.push({ op: 'set', base: 'tarefas', pageId: t.page.id, key: 'titulo', value: dados.titulo.trim(), expect: t.titulo });
+      linhas.push({ base: T, pagina: P, campo: B.titulo.name, atual: t.titulo, novo: dados.titulo.trim() });
+    }
+    if (dados.resp) {
+      const novos = dados.resp.map(ID);
+      if (JSON.stringify([...novos].sort()) !== JSON.stringify([...t.resp].map(ID).sort())) {
+        ops.push({ op: 'set', base: 'tarefas', pageId: t.page.id, key: 'responsavel', value: novos });
+        linhas.push({ base: T, pagina: P, campo: B.responsavel.name, atual: t.resp.map((id) => nomePessoa(D, id)).join(', ') || '—', novo: novos.map((id) => nomePessoa(D, id)).join(', ') || '(ninguém)' });
+      }
+    }
+    if (dados.prazo !== undefined && (dados.prazo || null) !== t.prazo) {
+      ops.push({ op: 'set', base: 'tarefas', pageId: t.page.id, key: 'prazo', value: dados.prazo || null });
+      linhas.push({ base: T, pagina: P, campo: B.prazo.name, atual: t.prazo ? t.prazo.split('-').reverse().join('/') : '—', novo: dados.prazo ? dados.prazo.split('-').reverse().join('/') : '(vazio)' });
+    }
+    if (dados.prioridade !== undefined && (dados.prioridade || null) !== (t.prioridade || null)) {
+      if (dados.prioridade && !B.prioridade.options.includes(dados.prioridade)) bloqueios.push(`Prioridade inválida: ${dados.prioridade}`);
+      ops.push({ op: 'set', base: 'tarefas', pageId: t.page.id, key: 'prioridade', value: dados.prioridade || null, expect: t.prioridade || null });
+      linhas.push({ base: T, pagina: P, campo: B.prioridade.name, atual: t.prioridade || '—', novo: dados.prioridade || '(vazio)' });
+    }
+    if (dados.subs) {
+      const novos = dados.subs.map(ID);
+      const add = novos.filter((id) => !t.subs.includes(id)); const rem = t.subs.filter((id) => !novos.includes(N.exib(id)));
+      if (add.length) { ops.push({ op: 'relAdd', base: 'tarefas', pageId: t.page.id, key: 'subsistema', ids: add }); linhas.push({ base: T, pagina: P, campo: `${B.subsistema.name} (adicionar)`, atual: lista(t.subs, N.sub), novo: add.map((id) => `+ ${N.sub(id)}`).join(' · ') }); }
+      if (rem.length) { ops.push({ op: 'relRemove', base: 'tarefas', pageId: t.page.id, key: 'subsistema', ids: rem }); linhas.push({ base: T, pagina: P, campo: `${B.subsistema.name} (remover)`, atual: lista(rem, N.sub), novo: rem.map((id) => `− ${N.sub(id)}`).join(' · '), remocao: true }); }
+    }
+    if (!ops.length) bloqueios.push('Nada mudou.');
+    return { titulo: `Editar tarefa "${t.titulo}"`, linhas, ops, avisos: [], bloqueios };
+  },
+
+  // ---------------------------------------------------------------- registro de reunião na página do item
+  // Formato da skill gestao-sprint-notion: seção "🗣️ Registro de reuniões" → "### DD/MM/AAAA · Tipo · ⬜ Conferido por —"
+  // com Participantes / Discussão / Decisões / Sugestões da IA. Nada é apagado: a entrada é acrescentada.
+  async 'pagina.registro'({ api, dados }) {
+    const pageId = typeof dados.pagina === 'string' ? ID(dados.pagina) : dados.pagina;
+    const tipo = String(dados.tipo || 'Tática').trim();
+    const data = String(dados.data || new Date().toISOString().slice(0, 10));
+    const bloqueios = [];
+    const itens = [
+      ['Participantes', (dados.participantes || []).join(', ')],
+      ['Discussão', String(dados.discussao || '').trim()],
+      ['Decisões', String(dados.decisoes || '').trim() || 'nenhuma'],
+      ...(dados.sugestoes ? [['Sugestões da IA', `${String(dados.sugestoes).trim()} (aguardam conferência)`]] : []),
+      ...(dados.reuniao ? [['Reunião', `{url:${dados.reuniao}}`]] : []),
+    ].filter(([, t]) => t);
+    if (!String(dados.discussao || '').trim()) bloqueios.push('Escreva a discussão.');
+    let titulo = dados.titulo || '(página)'; let url = null;
+    if (typeof pageId === 'string') {
+      const page = await api.retrievePage(pageId).catch(() => null);
+      if (!page) bloqueios.push('Página não encontrada no Notion.');
+      else { titulo = titleOf(page) || titulo; url = page.url; }
+    }
+    const cab = `${data.split('-').reverse().join('/')} · ${tipo} · ⬜ Conferido por —`;
+    return {
+      titulo: `Registrar discussão em "${titulo}"`,
+      linhas: [{ base: dados.base && BASES[dados.base] ? BASES[dados.base].titulo : 'Página', pagina: { id: typeof pageId === 'string' ? pageId : null, titulo, url }, campo: `## ${SECOES.registro}`, atual: '(entradas anteriores mantidas)', novo: `+ ### ${cab} · ${itens.map(([r, t]) => `${r}: ${t.replace(/\{url:[^}]+\}/g, '(link)')}`).join(' · ')}` }],
+      ops: [{ op: 'registro', pageId, heading: SECOES.registro, titulo: cab, itens }],
+      avisos: [], bloqueios,
+    };
+  },
+});
+
 // ---------------------------------------------------------------- rascunho do dashboard (lote)
 // itens: [{id, acao, dados, tri?}] na ordem em que entram (criações primeiro). Cada item vira o seu plano;
 // as referências de criação ganham o prefixo do item ("<item>/meta") para não colidirem, e uma meta ainda não
@@ -524,7 +670,7 @@ const TMP = 'tmp:';
 const isTmp = (id) => typeof id === 'string' && id.startsWith(TMP);
 function prefixar(v, pre) {
   if (Array.isArray(v)) return v.map((x) => prefixar(x, pre));
-  if (typeof v === 'string') return v.replace(/\{url:([\w:./-]+)\}/g, (_, r) => `{url:${pre}/${r}}`);
+  if (typeof v === 'string') return v.replace(/\{url:([\w:.-]+)\}/g, (_, r) => `{url:${pre}/${r}}`); // com "/" já é de outro item
   if (v && typeof v === 'object') {
     if (typeof v.ref === 'string' && v.g) return v; // referência a outro item do lote (já completa)
     if (typeof v.ref === 'string' && Object.keys(v).length === 1) return { ref: `${pre}/${v.ref}` };

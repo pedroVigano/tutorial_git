@@ -18,6 +18,8 @@ export const state = {
   theme: saved.theme || 'auto',
   cols: saved.cols || {}, // larguras das colunas Árvore | Desejos das lanes (px)
   tvPin: !!saved.tvPin,
+  equipeOp: saved.equipeOp || 'todas', // aba Operacional
+  verComo: saved.verComo || null, // aba Eu: pessoa escolhida quando o login não casa com o Notion
   krFechados: new Set(), // KRs recolhidos na coluna OKR (só nesta sessão)
   linking: null,
   connect: null,
@@ -27,7 +29,7 @@ export const state = {
 
 export function persist() {
   const left = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--left'), 10) || null;
-  store.set('gt-state', { obj: state.obj, modo: state.modo, equipe: state.equipe, closed: [...state.closed], left, theme: state.theme, cols: state.cols, tvPin: state.tvPin });
+  store.set('gt-state', { obj: state.obj, modo: state.modo, equipe: state.equipe, closed: [...state.closed], left, theme: state.theme, cols: state.cols, tvPin: state.tvPin, equipeOp: state.equipeOp, verComo: state.verComo });
 }
 
 // Ordem dos cards por lane: preferência local (não vai para o Notion).

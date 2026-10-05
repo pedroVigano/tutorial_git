@@ -86,6 +86,11 @@ export function createApi(client, { limiter = createLimiter() } = {}) {
       return call(count(() => client.blocks.children.append({ block_id, children, ...(after ? { after } : {}) })));
     },
 
+    // Pessoas do workspace (com e-mail quando a integração tem a capacidade "ler e-mail de usuários").
+    listUsers() {
+      return paginate((start_cursor) => client.users.list({ page_size: 100, ...(start_cursor ? { start_cursor } : {}) }));
+    },
+
     retrieveUser(user_id) {
       return call(count(() => client.users.retrieve({ user_id })));
     },

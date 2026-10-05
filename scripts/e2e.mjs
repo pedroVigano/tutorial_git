@@ -189,6 +189,41 @@ try {
   await page.click('[data-page="board"]');
   await page.waitForSelector('.card');
 
+  // Operacional: arrastar tarefa de coluna, tarefa nova numa meta, registrar discussão na página da meta
+  await page.click('[data-page="operacional"]');
+  await page.waitForSelector('#page-operacional .kanban');
+  const tcard = page.locator('#page-operacional .kcol[data-status="A Fazer"] .tcard').first();
+  const tTitulo = (await tcard.locator('.tt').innerText()).trim();
+  await tcard.dragTo(tcard.locator('xpath=ancestor::div[contains(@class,"kanban")]').locator('.kcol[data-status="Em Andamento"]'));
+  await page.waitForSelector(`#page-operacional .kcol[data-status="Em Andamento"] .tcard.pend:has-text("${tTitulo.slice(0, 30)}")`);
+  const secMeta = page.locator('#page-operacional .op-meta:has(.kcol[data-status="A Fazer"] .add)').first();
+  await secMeta.locator('[data-t-novo]').click();
+  await page.fill('#tf-t', 'Medir consumo do protótipo em bancada');
+  await page.click('#modal-form button[type=submit]');
+  await page.waitForSelector('#page-operacional .tcard.pend:has-text("Medir consumo do protótipo")');
+  await page.locator('#page-operacional [data-reg-meta]').first().click();
+  await page.fill('#rg-d', 'Discutimos o atraso do fornecedor e o plano B.');
+  await page.click('#modal-form button[type=submit]');
+  await revisar(page);
+  const txtRev = await page.locator('#review .rv-plan').innerText();
+  assert.match(txtRev, /Em Andamento/, 'mudança de status da tarefa na revisão');
+  assert.match(txtRev, /Medir consumo do protótipo/, 'tarefa nova na revisão');
+  assert.match(txtRev, /Registro de reuniões/, 'registro na página da meta');
+  await gravar(page);
+  await page.waitForSelector(`#page-operacional .kcol[data-status="Em Andamento"] .tcard:not(.pend):has-text("${tTitulo.slice(0, 30)}")`);
+  await page.waitForSelector('#page-operacional .tcard:not(.pend):has-text("Medir consumo do protótipo")');
+  ok('operacional: tarefa arrastada de coluna, tarefa nova e discussão registrada — revisão e gravação');
+
+  // Eu: a pessoa do Notion com o e-mail do login (demo: dev@) e as tarefas dela
+  await page.click('[data-page="eu"]');
+  await page.waitForSelector('#page-eu .kanban');
+  assert.match(await page.innerText('#page-eu .page-h'), /\(você\)/);
+  assert.ok(await page.locator('#page-eu .eu-sec').first().locator('.tcard').count() > 0, 'minhas tarefas');
+  assert.ok(await page.locator('#page-eu .eu-no').count() > 0, 'itens da árvore de que sou responsável');
+  ok('eu: login casado com a pessoa do Notion, minhas tarefas e meus itens da árvore');
+  await page.click('[data-page="board"]');
+  await page.waitForSelector('.card');
+
   // rascunho: meta nova + dependência + mover a meta nova = 2 itens (o mover entra na criação); excluir um
   // item replaneja; o rascunho sobrevive ao recarregar; descartar limpa
   await page.click('.chip:nth-of-type(1)');

@@ -37,9 +37,14 @@ export function demoState(D = readMockData()) {
     pages[p.id] = p;
     return p.id;
   };
+  // pessoas: o responsável mais frequente da árvore é a pessoa do usuário de desenvolvimento (aba Eu no demo)
+  const freq = {};
+  D.tree.forEach((n) => { if (n.resp) freq[n.resp] = (freq[n.resp] || 0) + 1; });
+  const devShort = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0];
   const person = (short) => {
     const id = uid(`user:${short}`);
-    users[id] = { object: 'user', id, type: 'person', name: `Responsável ${short}` };
+    const email = short === devShort ? 'dev@bsvrobotics.com.br' : `pessoa.${short}@bsvrobotics.com.br`;
+    users[id] = { object: 'user', id, type: 'person', name: `Responsável ${short}`, person: { email } };
     return id;
   };
 
@@ -142,6 +147,24 @@ export function demoState(D = readMockData()) {
       titulo: `(exemplo) ${tk.titulo}`, status: statusNotion[tk.status] || tk.status,
       meta: [metaId(m.id)], sprint: [sprintId[atual]], subsistema: m.subs.slice(0, 1).map(nodeId),
       responsavel: tk.resp ? [person(tk.resp)] : [],
+    });
+  });
+  // mais tarefas de exemplo para as abas Operacional e Eu: 3 por meta de P&D da sprint atual (até 14 metas),
+  // com o responsável do subsistema da meta, prazo no fim da sprint e prioridades variadas
+  const fimAtual = D.sprints.find((s) => s.n === atual)?.fim;
+  const respDe = (subId) => D.tree.find((n) => n.id === subId)?.resp;
+  const ciclo = ['A Fazer', 'Fazendo', 'Em Revisão', 'Concluída', 'Bloqueada', 'A Fazer', 'Fazendo'];
+  const prios = ['P0 - Finalizar', 'P1 - Avançar', 'P2 - Se Possível'];
+  const verbos = ['Levantar requisitos de', 'Prototipar', 'Testar em bancada'];
+  comSub.filter((m) => m.sprints.includes(atual) && DIRETORIA_DE[m.area] === 'P&D').slice(0, 14).forEach((m, i) => {
+    verbos.forEach((v, j) => {
+      const resp = respDe(m.subs[0]);
+      add('tarefas', `ex:${m.id}:${j}`, {
+        titulo: `(exemplo) ${v} ${m.titulo.replace(/^[A-Z]\d+\.\s*/, '').slice(0, 48).toLowerCase()}`,
+        status: ciclo[(i + j) % ciclo.length], meta: [metaId(m.id)], sprint: [sprintId[atual]],
+        subsistema: m.subs.slice(0, 1).map(nodeId), responsavel: resp ? [person(resp)] : [],
+        area: areas([m.area]), prazo: fimAtual ? { start: fimAtual } : null, prioridade: prios[(i + j) % 3],
+      });
     });
   });
 

@@ -26,7 +26,7 @@ export function openDrawer(id) {
   <dt>Bloqueando</dt><dd>${bloqueando.map((x) => esc(x.titulo)).join('<br>') || '—'}</dd>
   ${m.tarefas ? `<dt>Tarefas</dt><dd class="mono">${Object.entries(m.tarefas).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' · ') || '—'}</dd>` : ''}</dl>
   <div class="btnrow">${w ? '<button class="btn primary" id="d-edit">✎ Editar</button>' : ''}${m.url ? `<a class="btn" href="${esc(m.url)}" target="_blank" rel="noopener">Notion ↗</a>` : ''}</div>
-  ${w ? `<div class="btnrow" style="margin-top:8px"><button class="btn small" id="d-link">⛓ Ligar dependência por clique</button><button class="btn small" id="d-roll">→ Próxima sprint</button>${m.status !== 'Abortado' ? '<button class="btn small" id="d-abort" style="color:var(--crit)">Abortar</button>' : ''}</div>
+  ${w ? `<div class="btnrow" style="margin-top:8px"><button class="btn small" id="d-link">⛓ Ligar dependência por clique</button><button class="btn small" id="d-roll">→ Próxima sprint</button>${m.url ? '<button class="btn small" id="d-reg">🗣 Registrar discussão</button>' : ''}${m.status !== 'Abortado' ? '<button class="btn small" id="d-abort" style="color:var(--crit)">Abortar</button>' : ''}</div>
   <p class="hint" style="margin-top:12px">Cada ação entra no 📝 Rascunho; nada é gravado antes da revisão. Nada é apagado: "apagar" uma meta é marcá-la como Abortado.</p>${m.pend ? `<p class="hint" style="color:var(--accent-ink)">No rascunho: ${esc(m.pend.join(', '))}.</p>` : ''}` : '<p class="hint" style="margin-top:12px">Somente leitura.</p>'}`;
   $('#drawer').classList.add('open');
   if (!w) return;
@@ -36,6 +36,8 @@ export function openDrawer(id) {
     toast(`Agora clique na meta que fica bloqueada por "${m.titulo.slice(0, 40)}…" (Esc cancela)`, 4000);
   };
   body.querySelector('#d-roll').onclick = () => { closeDrawer(); askNextSprint(m); };
+  const reg = body.querySelector('#d-reg');
+  if (reg) reg.onclick = async () => { closeDrawer(); const { openRegistroForm } = await import('./tarefas.js'); openRegistroForm({ base: 'metas', id: m.id, titulo: m.titulo }); };
   const ab = body.querySelector('#d-abort');
   if (ab) ab.onclick = () => { closeDrawer(); stageChange('meta.status', { meta: m.id, status: 'Abortado' }); };
 }

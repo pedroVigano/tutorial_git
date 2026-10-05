@@ -30,7 +30,7 @@ export function readValue(v, type) {
     case 'multi_select': return (v.multi_select || []).map((o) => o.name);
     case 'relation': return (v.relation || []).map((r) => r.id);
     case 'date': return v.date ? { start: v.date.start, end: v.date.end ?? null } : null;
-    case 'people': return (v.people || []).map((p) => ({ id: p.id, nome: p.name || null }));
+    case 'people': return (v.people || []).map((p) => ({ id: p.id, nome: p.name || null, email: p.person?.email || null }));
     case 'created_time': return v.created_time ?? null;
     default: return null;
   }
@@ -96,6 +96,9 @@ export function toProperties(base, values) {
 // Blocos simples para o corpo das páginas.
 export const blocks = {
   h2: (t) => ({ object: 'block', type: 'heading_2', heading_2: { rich_text: text(t) } }),
+  h3: (t) => ({ object: 'block', type: 'heading_3', heading_3: { rich_text: text(t) } }),
+  // "**Rótulo:** texto" (formato do Registro de reuniões da skill gestao-sprint-notion)
+  rotulo: (r, t) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ type: 'text', text: { content: `${r}: ` }, annotations: { bold: true } }, ...text(t)] } }),
   p: (t) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: text(t) } }),
   bullet: (t) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: text(t) } }),
   link: (label, url) => ({

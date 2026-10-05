@@ -1,6 +1,12 @@
-# Dashboard Tático P&D — BSV Robótica
+# Dashboard de gestão da sprint — P&D, BSV Robótica
 
-Dashboard da **reunião tática de P&D**: OKRs com série de KPIs por sprint, board de metas × subsistemas, dependências, alertas por regra, rollover da sprint e pedido de registro de reunião para o Claude.
+O lugar das reuniões de gestão de P&D, uma aba por reunião:
+- **Trimestral:** OKRs do trimestre passado × trimestre atual.
+- **Tática:** objetivos, KRs e KPIs; metas da sprint por equipe e por projeto.
+- **Operacional:** por equipe, metas da sprint com OKRs/KPIs e tarefas por status e responsável.
+- **Eu:** minhas tarefas, revisões, itens da árvore e OKRs de que sou responsável.
+
+A aba **Rollover** fecha a sprint, e o painel **🎙 Reunião** está em todas as abas.
 
 É a versão real do mock v2.2 (`docs/mock/Reuniao_Tatica_PD_S27_v2_2.html`), feita dentro da reestruturação da gestão da sprint (`docs/contexto_reestruturacao_sprint.md`, Fase 5):
 - **Lê o Notion ao vivo.** Não usa mais uma foto de dados embutida.
@@ -52,6 +58,8 @@ Tudo abaixo passa pelo rascunho e pela revisão antes de gravar.
 | Abortar | `Status = Abortado` |
 | → Próxima sprint | `🏃 Sprint` (+ #N+1, cria a sprint se preciso) e linha em `## Histórico de sprints` com o motivo |
 | ＋ registrar medição (coluna OKR ou R4 do rollover) | linha em 📈 Evolução de KPIs (`<KPI> — Sprint #NN`, KPI, Sprint, Valor, Data) ou troca do valor existente |
+| + tarefa / ✎ / arrastar de coluna (Operacional, Eu) | página nova em ✅ Lista de Tarefas (Meta, Sprint, Subsistema, Responsável, Área, Prazo, Prioridade) / campos alterados / `Status` |
+| 🗣 Registrar discussão | entrada nova em `## 🗣️ Registro de reuniões` da página (criada no fim se não existir) |
 | Rollover R1–R6 | cria a #N+1; revincula metas e tarefas marcadas; histórico (ou `Sprint_de_origem`, quando existir); medições; no fim, #N → Concluído e #N+1 → Em andamento |
 | Trimestral → Gravar no Notion | páginas novas em 🎯 OKRs Táticos (cópias com `Origem`, KRs/KPIs novos), `KPI` (+) nas medições religadas, edições e `Status` (Abortado / status final) |
 | 🎙 Reunião (painel do cabeçalho, em qualquer aba) | nada: gera o prompt para a skill `gestao-sprint-notion` registrar a discussão |
@@ -73,6 +81,24 @@ Outros recursos:
     - status final do trimestre revisado.
   - **Depois de gravar:** o pareamento é refeito pelo campo `Origem`. Refazer o mesmo rascunho não duplica páginas.
 - **Ordem dos OKRs:** objetivos, KRs e KPIs seguem a coluna `Ordem` do Notion, com os vazios no fim. Vale para o Board e para a Trimestral. Os KPIs são numerados dentro de cada KR.
+- **Operacional:**
+  - **Por equipe:** as metas da sprint mostram o objetivo, os gráficos dos KRs e o quadro de tarefas (A Fazer · Em Andamento · Em Revisão · Concluída · Bloqueada).
+  - **Ações:**
+    - arrastar a tarefa de coluna muda o status;
+    - "+" cria tarefa na meta, com responsável, subsistema, prazo e prioridade;
+    - ✎ edita;
+    - 🗣 registra a discussão na página.
+  - **Ao lado:** "Em revisão" (com quem revisa: o responsável do subsistema), "Bloqueadas" e "Por pessoa".
+  - **Gate de conclusão:** Em Revisão → Concluída vira aviso na revisão quando falta o gate, ou quando quem conclui não é o responsável do subsistema.
+- **Eu:**
+  - "Eu" é a pessoa do Notion com o e-mail do login. Se a integração não lê e-mails, escolha em "Ver como".
+  - **Mostra:**
+    - minhas tarefas da sprint;
+    - revisões esperando por mim, nos subsistemas de que sou responsável;
+    - itens da árvore de que sou responsável, com metas e desejos;
+    - metas de que participo;
+    - OKRs de que sou responsável. Esta parte está marcada A DEFINIR até existir `Responsável pelo OKR`.
+- **🗣 Registrar discussão** (meta, tarefa, item da árvore): acrescenta uma entrada na seção "🗣️ Registro de reuniões" da página, no formato da skill `gestao-sprint-notion` (`### DD/MM/AAAA · Tipo · ⬜ Conferido por —` + Participantes / Discussão / Decisões).
 - **Tática (board):**
   - **Gráfico de KR:** um gráfico compacto por KR, com todos os KPIs em "% do alvo".
     - O alvo de todos fica na mesma linha (100%), e para cima é melhor (≤ usa alvo/valor).

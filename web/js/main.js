@@ -10,6 +10,8 @@ import { drawArrows } from './arrows.js';
 import { renderRollover } from './rollover.js';
 import { renderReuniao, openReuniao, closeReuniao, reuniaoAberta } from './reuniao.js';
 import { renderTrimestral } from './trimestral.js';
+import { renderOperacional } from './operacional.js';
+import { renderEu } from './eu.js';
 import { closeModal } from './modal.js';
 import { closeDrawer } from './drawer.js';
 import { carregar as carregarRascunho, atualizarBotao } from './rascunho.js';
@@ -52,7 +54,8 @@ function renderHeader() {
   const hora = new Date(D.lido_em_iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   $('#badge-data').textContent = `Notion lido às ${hora} · ↻`;
   $('#badge-data').title = `Dados do Notion de ${D.lido_em}. Clique para recarregar agora.`;
-  $('#user-chip').innerHTML = `${esc(meta.email)} · <b>${meta.pode_gravar ? 'edição' : 'leitura'}</b>${meta.auth === 'dev' ? ' · <span title="AUTH_MODE=dev: usuário local, sem login Google">dev</span>' : ''}${meta.modo === 'fixture' ? ' · <span title="NOTION_MODE=fixture: dados de demonstração (foto do mock de 14/09), gravações em memória">demo</span>' : ''}`;
+  $('#user-chip').title = meta.email;
+  $('#user-chip').innerHTML = `${esc(String(meta.email).split('@')[0])} · <b>${meta.pode_gravar ? 'edição' : 'leitura'}</b>${meta.auth === 'dev' ? ' · <span title="AUTH_MODE=dev: usuário local, sem login Google">dev</span>' : ''}${meta.modo === 'fixture' ? ' · <span title="NOTION_MODE=fixture: dados de demonstração (foto do mock de 14/09), gravações em memória">demo</span>' : ''}`;
   const tv = $('#tv-btn');
   const pg = state.page !== 'board' ? `&pagina=${state.page}` : '';
   tv.href = state.tv ? `?${state.sprint != null ? `sprint=${state.sprint}` : ''}${pg}` : `?modo=tv${state.sprint != null ? `&sprint=${state.sprint}` : ''}${pg}`;
@@ -66,7 +69,7 @@ function renderHeader() {
 }
 
 // ---------- páginas ----------
-const PAGES = ['board', 'trimestral', 'rollover'];
+const PAGES = ['board', 'trimestral', 'operacional', 'eu', 'rollover'];
 function showPage(p) {
   if (p === 'reuniao') { openReuniao(); p = 'board'; } // link antigo da aba "Reunião & IA"
   if (!PAGES.includes(p)) p = 'board';
@@ -91,6 +94,8 @@ function render() {
   if (state.page === 'rollover') renderRollover();
   if (reuniaoAberta()) renderReuniao();
   if (state.page === 'trimestral') renderTrimestral();
+  if (state.page === 'operacional') renderOperacional();
+  if (state.page === 'eu') renderEu();
 }
 
 // ---------- carga ----------

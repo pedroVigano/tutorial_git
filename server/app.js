@@ -92,6 +92,9 @@ export async function buildApp({ config, client, jwks, audience, logger = true }
     const meta = {
       email: req.user.email, pode_gravar: req.user.podeGravar && !somenteLeitura(), somente_leitura: somenteLeitura(),
       avisos_schema: [...schema.erros, ...schema.avisos], modo: config.notionMode, auth: auth.mode,
+      // pessoa do Notion com o mesmo e-mail do login (aba Eu); null se a integração não lê e-mails
+      eu: (v.data.pessoas || []).find((u) => u.email && u.email.toLowerCase() === String(req.user.email).toLowerCase()) || null,
+      emails_pessoas: (v.data.pessoas || []).some((u) => u.email),
     };
     const etag = `${v.etag.slice(0, -1)}-${meta.pode_gravar ? 'w' : 'r'}${meta.avisos_schema.length}"`;
     reply.header('ETag', etag).header('Cache-Control', 'no-cache');
