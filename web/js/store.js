@@ -1,10 +1,19 @@
 // Dados do snapshot (objeto D, no formato do mock) + índices. Sem DOM: importável nos testes em Node.
 
+// Ordem da árvore de projetos: coluna ID do Notion ("1.10" depois de "1.9"); sem ID vai para o fim, por nome.
+export function porCodigo(a, b) {
+  const ca = a?.codigo || ''; const cb = b?.codigo || '';
+  if (ca && !cb) return -1;
+  if (!ca && cb) return 1;
+  return (ca && cb ? ca.localeCompare(cb, 'pt-BR', { numeric: true }) : 0) || String(a?.nome || '').localeCompare(String(b?.nome || ''), 'pt-BR');
+}
+
 export function buildIndex(D) {
   const byId = {};
   D.tree.forEach((n) => { byId[n.id] = n; });
   const children = {};
   D.tree.forEach((n) => { if (n.pai) (children[n.pai] = children[n.pai] || []).push(n.id); });
+  Object.values(children).forEach((l) => l.sort((a, b) => porCodigo(byId[a], byId[b])));
   const rootOf = (id) => { let n = byId[id]; if (!n) return id; const seen = new Set(); while (n.pai && byId[n.pai] && !seen.has(n.id)) { seen.add(n.id); n = byId[n.pai]; } return n.id; };
   const pathOf = (id) => { const p = []; let n = byId[id]; while (n) { p.unshift(n.nome); n = n.pai ? byId[n.pai] : null; } return p; };
   const isLane = (n) => !!n.pai && !(children[n.id] || []).length;

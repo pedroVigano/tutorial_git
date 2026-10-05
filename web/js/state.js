@@ -18,6 +18,7 @@ export const state = {
   theme: saved.theme || 'auto',
   cols: saved.cols || {}, // larguras das colunas Árvore | Desejos das lanes (px)
   tvPin: !!saved.tvPin,
+  krFechados: new Set(), // KRs recolhidos na coluna OKR (só nesta sessão)
   linking: null,
   connect: null,
   drag: null,
@@ -34,4 +35,5 @@ const orderKey = () => `gt-order-s${state.sprint}`;
 export const order = {
   get: (lane) => (store.get(orderKey(), {})[lane] || []),
   set: (lane, ids) => { const o = store.get(orderKey(), {}); o[lane] = ids; store.set(orderKey(), o); },
+  clear: () => store.set(orderKey(), {}),
 };

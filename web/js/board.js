@@ -1,6 +1,6 @@
 // Página Board: barra de objetivos, coluna OKR (KPIs com série por sprint), lanes Projeto › Sistema ›
 // Subsistema com desejos e metas, legenda e alertas. Portado do mock v2.2 — agora com dados ao vivo.
-import { S, canWrite } from './store.js';
+import { S, canWrite, porCodigo } from './store.js';
 import { state, persist, order } from './state.js';
 import { esc, fmt, dm, toast, $, $$ } from './util.js';
 import { kpiLast, kpiStatus, krStatus, objStatus, coverage, stColor, visibleProjects, computeAlerts, OUTROS } from './rules.js';
@@ -10,6 +10,8 @@ import { openDrawer } from './drawer.js';
 import { openMetaForm } from './meta-form.js';
 import { openKpiForm } from './kpi-form.js';
 import { drawArrows, startConnect } from './arrows.js';
+import { krCor, krCor as corSlot, krChartHTML, bindKrChart } from './kchart.js';
+import { ordemAuto } from './layout.js';
 
 export { canWrite };
 
@@ -69,46 +71,10 @@ function renderObjbar() {
 }
 
 // ---------- coluna OKR ----------
-// Um gráfico por KR com todos os KPIs juntos. Cada KPI tem a sua própria escala (unidades diferentes),
-// então a altura de cada linha só compara a trajetória dela com o próprio alvo; os valores reais ficam
-// no tooltip dos pontos e na legenda (placar de cada KPI logo abaixo).
-const N_SERIES = 8; // --s1..--s8 em app-real.css; a partir daí cinza, nunca cor repetida
-const serieCor = (i) => (i < N_SERIES ? `var(--s${i + 1})` : 'var(--neutral)');
-const comUnidade = (k, v) => `${fmt(v)}${k.unidade ? ` ${esc(k.unidade)}` : ''}`;
+// Um gráfico compacto por KR (web/js/kchart.js): KPIs em % do alvo, legenda clicável, tooltip com os valores
+// reais. A cor do KR segue a ordem dele no objetivo; os KPIs ficam em tons dessa cor.
 
-function krChart(ks) {
-  if (!ks.length) return '';
-  const xs = S.I.sprintNums;
-  const W = 320; const H = 150; const pl = 16; const pr = 16; const pt = 12; const pb = 22;
-  const x = (i) => (xs.length > 1 ? pl + (i * (W - pl - pr)) / (xs.length - 1) : W / 2);
-  const base = H - pb;
-  const scale = (k) => {
-    const nums = xs.map((s) => k.serie[String(s)]).filter((v) => v != null); if (k.alvo != null) nums.push(k.alvo);
-    let lo = Math.min(0, ...nums); let hi = Math.max(...nums, 1); if (hi === lo) hi = lo + 1;
-    const pad = (hi - lo) * 0.18; lo -= pad * 0.4; hi += pad;
-    return (v) => base - ((v - lo) / (hi - lo)) * (base - pt);
-  };
-  let s = `<svg class="kchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Série de ${ks.length} KPI(s) por sprint, cada um na sua escala">`;
-  s += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${base}" y2="${base}"/><line class="grid soft" x1="${pl}" x2="${W - pr}" y1="${(base + pt) / 2}" y2="${(base + pt) / 2}"/>`;
-  const ys = ks.map(scale);
-  ks.forEach((k, j) => { // alvos por baixo das linhas
-    if (k.alvo == null) return;
-    const ty = ys[j](k.alvo);
-    s += `<line class="tgt" stroke="${serieCor(j)}" x1="${pl}" x2="${W - pr}" y1="${ty}" y2="${ty}"><title>${esc(k.titulo)} — alvo ${esc(k.dir || '')} ${comUnidade(k, k.alvo)}</title></line>`;
-  });
-  ks.forEach((k, j) => {
-    const col = serieCor(j); const last = kpiLast(k);
-    const pts = xs.map((sp, i) => (k.serie[String(sp)] != null ? { sp, i, v: k.serie[String(sp)], y: ys[j](k.serie[String(sp)]) } : null)).filter(Boolean);
-    if (pts.length > 1) s += `<polyline class="ln" stroke="${col}" points="${pts.map((p) => `${x(p.i)},${p.y}`).join(' ')}"/>`;
-    pts.forEach((p) => {
-      const cur = last && p.sp === last.s;
-      s += `<g class="pt"><title>${esc(k.titulo)} · #${p.sp}: ${comUnidade(k, p.v)}</title><circle class="hit" cx="${x(p.i)}" cy="${p.y}" r="9"/><circle cx="${x(p.i)}" cy="${p.y}" r="${cur ? 5.5 : 4}" fill="${col}"/></g>`;
-    });
-  });
-  xs.forEach((sp, i) => { s += `<text class="sp ${sp === S.D.sprint ? 'cur' : ''}" x="${x(i)}" y="${H - 6}" text-anchor="middle">#${sp}</text>`; });
-  return `${s}</svg><div class="kchart-note">cada KPI na sua própria escala · tracejado = alvo</div>`;
-}
-
+// Placar grande de um KPI (usado na Trimestral).
 export function scoreHTML(k) {
   const st = kpiStatus(k); const l = kpiLast(k); const col = stColor(st.cls);
   const cur = l ? `${fmt(l.v)}<small>${esc(k.unidade || '')}</small>` : '—<small>sem medição</small>';
@@ -135,33 +101,55 @@ function renderOKR() {
   }
   const o = I.objById[state.obj]; const s = objStatus(I, o);
   el.innerHTML = `<div class="okr-h"><span class="eyebrow">${o.label} · Objetivo · ${esc(D.trimestre.id)}</span><h2>${esc(o.icone)} ${esc(o.titulo)}</h2><div class="meta"><span class="pill ${s.cls}">${s.txt}</span>${o.limite ? `<span class="pill">limite ${dm(o.limite)}</span>` : ''}${o.projetos.map((p) => `<span class="pill">${esc(I.byId[p]?.nome || '?')}</span>`).join('')}${o.alerta ? `<span class="pill st-warn" title="${esc(o.alerta)}">⚠ reapontar</span>` : ''}<a href="${esc(o.url)}" target="_blank" rel="noopener" style="font-size:11px">abrir no Notion ↗</a></div></div>`;
-  I.krsOf(o.id).forEach((kr) => {
+  const largura = Math.max(260, el.clientWidth - 56);
+  I.krsOf(o.id).forEach((kr, i) => {
     const st = krStatus(I, kr); const ks = I.kpisOf(kr.id);
     const det = document.createElement('details');
-    det.className = 'kr'; det.open = true;
-    const kpiRow = (k, j) => `<div class="kpi" style="--sc:${serieCor(j)}"><div class="n"><i class="swk"></i>${esc(k.titulo)}<small>${k.limite ? `até ${dm(k.limite)} · ` : ''}<a href="${esc(k.url)}" target="_blank" rel="noopener">Notion ↗</a>${canWrite() ? ` · <button type="button" class="linkbtn" data-kpi="${k.id}">＋ registrar medição</button>` : ''}</small></div><div class="body">${scoreHTML(k)}</div></div>`;
-    det.innerHTML = `<summary><div><span class="eyebrow">${kr.label}</span><div class="t">${esc(kr.titulo)}</div></div><div class="s"><span class="pill ${st.cls}">${st.txt}</span><span class="pill">${kr.limite ? dm(kr.limite) : 'sem data'}</span></div></summary><div class="body">${krChart(ks)}${ks.map(kpiRow).join('') || '<div class="empty">Sem KPIs cadastrados.</div>'}</div>`;
+    det.className = 'kr'; det.open = !state.krFechados?.has(kr.id);
+    det.style.setProperty('--kr', krCor(i));
+    det.innerHTML = `<summary><span class="krb"><i></i>${esc(kr.label)}</span><span class="t" title="${esc(kr.titulo)}">${esc(kr.titulo)}</span><span class="s"><span class="pill ${st.cls}">${st.txt}</span><span class="pill">${kr.limite ? dm(kr.limite) : 'sem data'}</span></span></summary><div class="body">${krChartHTML(kr.id, ks, { xs: I.sprintNums, cur: D.sprint, kr: krCor(i), width: largura, edit: canWrite() })}</div>`;
+    det.addEventListener('toggle', () => { state.krFechados = state.krFechados || new Set(); if (det.open) state.krFechados.delete(kr.id); else state.krFechados.add(kr.id); });
     el.appendChild(det);
   });
+  bindKrChart(el, { onToggle: renderOKR });
   if (!I.krsOf(o.id).length) el.insertAdjacentHTML('beforeend', '<div class="empty">Objetivo sem resultados-chave cadastrados.</div>');
   $$('[data-kpi]', el).forEach((b) => { b.onclick = () => openKpiForm(D.kpis.find((k) => k.id === b.dataset.kpi)); });
 }
 
 // ---------- lanes ----------
+const metasDoNo = (sub) => S.D.metas.filter((m) => m.sprints.includes(S.D.sprint) && m.subs.includes(sub) && !m.fora);
+const porOrdem = (ms, ord) => ms.slice().sort((a, b) => { const ia = ord.indexOf(a.id); const ib = ord.indexOf(b.id); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); });
+// Ordem dos cards: a manual (arrastada, fica no navegador) ou, sem ela, a calculada para as setas se cruzarem menos.
+let autoOrdem = new Map();
+function calcularOrdemAuto() {
+  const ids = S.D.tree.map((n) => n.id);
+  const manual = new Set(ids.filter((id) => order.get(id).length));
+  const lanes = new Map(ids.map((id) => [id, porOrdem(metasDoNo(id), order.get(id)).map((m) => m.id)]));
+  const edges = S.D.metas.flatMap((m) => (m.bloq || []).map((b) => ({ from: b, to: m.id })));
+  autoOrdem = ordemAuto(lanes, edges, { manual });
+}
 function metasIn(sub) {
-  const ms = S.D.metas.filter((m) => m.sprints.includes(S.D.sprint) && m.subs.includes(sub) && !m.fora);
-  const ord = order.get(sub);
-  return ms.slice().sort((a, b) => { const ia = ord.indexOf(a.id); const ib = ord.indexOf(b.id); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); });
+  const man = order.get(sub);
+  return porOrdem(metasDoNo(sub), man.length ? man : (autoOrdem.get(sub) || []));
 }
 
-function lanesFor(pid) {
-  const { D, I } = S;
-  const out = [];
-  D.tree.filter((n) => I.rootOf(n.id) === pid).forEach((n) => {
-    if (n.id !== pid && I.isLane(n)) out.push(n);
-    else if (metasIn(n.id).length) out.push({ ...n, synthetic: true });
+// Árvore de lanes de qualquer profundidade: projeto › sistema › … › subsistema. Todo nó tem a sua lane —
+// inclusive o projeto e os sistemas com filhos (metas de integração). Ordem: coluna ID do Notion.
+const kidsOf = (id) => (S.I.children[id] || []).filter((k) => S.I.byId[k]);
+const subarvore = (id) => [id, ...kidsOf(id).flatMap(subarvore)];
+// Cor da árvore: cada nó com filhos (sistema, sistema dentro de sistema…) ganha o próximo tom da paleta
+// categórica, na ordem do ID; os filhos sem filhos (subsistemas) herdam o tom do pai, mais claro. Assim os
+// subsistemas de um mesmo sistema ficam com a mesma cor e sistemas vizinhos se distinguem. O projeto fica neutro.
+function corDaArvore(pid) {
+  const cor = { [pid]: 'var(--ink-2)' };
+  if (pid === OUTROS) return cor;
+  let i = 0;
+  const tom = (n) => (n < 8 ? corSlot(n) : `oklch(from ${corSlot(n % 8)} calc(l - 0.14) c h)`);
+  const walk = (id, herdada) => kidsOf(id).forEach((k) => {
+    if (kidsOf(k).length) { cor[k] = tom(i); i += 1; walk(k, cor[k]); } else cor[k] = herdada;
   });
-  return out;
+  walk(pid, 'var(--ink-2)');
+  return cor;
 }
 
 function cardHTML(m, sub) {
@@ -185,55 +173,59 @@ function wishHTML(d) {
   return `<div class="wish"><div>${esc(d.titulo)} <a href="${esc(d.url)}" target="_blank" rel="noopener" style="font-size:10px">↗</a></div><div class="w-meta"><span class="tag">${esc(d.stakeholder)}</span><span class="tag">${esc(d.evidencia)}</span><span class="tag" style="${d.sprints_em_analise > 2 ? 'background:var(--warn-bg);color:var(--warn)' : ''}" title="aproximado: sprints desde a criação do desejo">~${d.sprints_em_analise} sprint(s) em análise</span></div>${canWrite() ? `<button type="button" class="mk" data-wish="${d.id}">+ meta de elaboração do requisito</button>` : ''}</div>`;
 }
 
-function laneHTML(n) {
+function laneHTML(n, depth, cor, { raiz = false } = {}) {
   const { D, I } = S;
   const ms = metasIn(n.id);
   const ds = D.desejos.filter((d) => d.subs.includes(n.id) && d.status === 'Em análise');
   const a = (n.areas || []).filter((x) => x !== 'pd');
   const stcls = n.status === 'Concluído' ? 'var(--good)' : n.status === 'Em andamento' ? 'var(--accent)' : n.status === 'Abortado' ? 'var(--crit)' : 'var(--neutral)';
-  const path = I.pathOf(n.id).slice(1, -1).join(' › ');
-  const tagTipo = n.synthetic
-    ? `<span class="tag" style="font-family:var(--mono);font-size:9.5px;background:var(--warn-bg);color:var(--warn)">metas ligadas ao ${esc(String(n.tipo).toLowerCase())}, não a um subsistema</span>`
-    : (n.tipo !== 'Subsistema' ? `<span class="tag" style="font-family:var(--mono);font-size:9.5px;color:var(--muted)">${esc(n.tipo)}${n.tipo === 'Sistema' ? ' sem subsistemas' : ''}</span>` : '');
+  const filhos = raiz ? [] : kidsOf(n.id);
+  const fechado = filhos.length > 0 && state.closed.has(n.id);
+  const esc_ = fechado ? subarvore(n.id).slice(1) : [];
+  const nEsc = esc_.reduce((t, id) => t + metasIn(id).filter(showMeta).length, 0);
+  const car = filhos.length
+    ? `<button type="button" class="tcar" data-toggle="${n.id}" aria-expanded="${!fechado}" title="${fechado ? 'Mostrar' : 'Recolher'} ${filhos.length} item(ns) abaixo">${fechado ? '▸' : '▾'}</button>`
+    : '<span class="tcar-sp"></span>';
+  const tipo = n.tipo && n.tipo !== 'Subsistema' ? `<span class="ttipo">${esc(n.tipo)}</span>` : '';
   const resp = n.resp
     ? `<span class="resp" title="Responsável no Notion">👤 ${esc(n.resp)}</span>`
     : '<span class="resp none" title="Sem responsável — sem quem revise tarefas nem sugira requisitos">⚠ sem responsável</span>';
   const cards = ms.filter(showMeta);
-  return `<div class="lane ${n.resp ? '' : 'warnlane'}" data-lane="${n.id}"><div class="lane-h"><div class="nm">${esc(n.nome)} ${tagTipo}${n.url ? ` <a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:10px">↗</a>` : ''}</div>${path ? `<div class="eyebrow" style="margin-top:2px;letter-spacing:0;text-transform:none">${esc(path)}</div>` : ''}<div class="info"><span class="dot" style="background:${stcls}" title="${esc(n.status)}"></span><span style="font-size:11px;color:var(--ink-2)">${esc(n.status)}</span>${resp}${a.map((x) => `<span class="pill" style="border-color:var(--${x});color:var(--${x})">${esc(I.AREA_NAME(x))}</span>`).join('')}</div></div>
+  return `<div class="lane${filhos.length ? ' pai' : ''}${fechado ? ' fechada' : ''}${raiz ? ' raiz' : ''}" data-lane="${n.id}" data-depth="${Math.min(depth, 3)}" style="--depth:${depth};--tc:${cor}"><div class="lane-h"><div class="nm">${car}<span class="nm-t">${n.codigo ? `<span class="tcod">${esc(n.codigo)}</span>` : ''}${esc(n.nome)} ${tipo}${n.url ? ` <a href="${esc(n.url)}" target="_blank" rel="noopener" style="font-size:10px">↗</a>` : ''}</span></div><div class="info"><span class="dot" style="background:${stcls}" title="${esc(n.status)}"></span><span style="font-size:11px;color:var(--ink-2)">${esc(n.status)}</span>${resp}${a.map((x) => `<span class="pill" style="border-color:var(--${x});color:var(--${x})">${esc(I.AREA_NAME(x))}</span>`).join('')}</div>${fechado ? `<button type="button" class="tesc" data-toggle="${n.id}">▸ ${esc_.length} item(ns) recolhido(s)${nEsc ? ` · ${nEsc} meta(s)` : ''}</button>` : ''}</div>
   <div class="cards">${ds.map(wishHTML).join('') || '<span class="empty">—</span>'}</div>
-  <div class="cards drop">${cards.map((m) => cardHTML(m, n.id)).join('')}${canWrite() && !n.sem_acesso ? `<button type="button" class="add" data-add="${n.id}" title="Nova meta neste subsistema">+</button>` : ''}</div></div>`;
+  <div class="cards drop">${cards.map((m) => cardHTML(m, n.id)).join('')}${canWrite() && !n.sem_acesso ? `<button type="button" class="add" data-add="${n.id}" title="Nova meta em ${esc(n.nome)}">+</button>` : ''}</div></div>`;
 }
 
 function renderLanes() {
   const { D, I } = S;
   const el = $('#lanes'); el.innerHTML = '';
-  const vis = visibleProjects(D, I, { sprint: D.sprint, obj: state.obj });
+  calcularOrdemAuto();
+  const vis = visibleProjects(D, I, { sprint: D.sprint, obj: state.obj })
+    .filter((pid) => I.byId[pid])
+    .sort((a, b) => (a === OUTROS) - (b === OUTROS) || porCodigo(I.byId[a], I.byId[b]));
   if (!vis.length) el.innerHTML = '<div class="empty">Nenhum projeto ligado aos objetivos de P&amp;D deste trimestre.</div>';
   vis.forEach((pid) => {
-    const p = I.byId[pid]; if (!p) return;
+    const p = I.byId[pid];
     const closed = state.closed.has(pid);
-    const lanes = lanesFor(pid);
-    const nMetas = lanes.reduce((s, n) => s + metasIn(n.id).filter(showMeta).length, 0);
+    const cor = corDaArvore(pid);
+    const ids = pid === OUTROS ? subarvore(pid).slice(1) : subarvore(pid);
+    const nMetas = ids.reduce((t, id) => t + metasIn(id).filter(showMeta).length, 0);
+    const linhas = [];
+    const walk = (id, depth) => {
+      linhas.push(laneHTML(I.byId[id], depth, cor[id] || 'var(--neutral)', { raiz: id === pid }));
+      if (id !== pid && state.closed.has(id)) return;
+      kidsOf(id).forEach((k) => walk(k, depth + 1));
+    };
+    if (pid === OUTROS) kidsOf(pid).forEach((k) => walk(k, 0)); else walk(pid, 0);
     const wrap = document.createElement('div');
     wrap.className = `proj${closed ? ' closed' : ''}`;
-    wrap.innerHTML = `<div class="proj-h" data-toggle="${pid}"><h2>${esc(p.nome)}</h2><span class="cnt">${lanes.length} lanes · ${nMetas} metas na #${D.sprint}${pid === OUTROS ? '' : (p.resp ? ` · 👤 ${esc(p.resp)}` : ' · <span style="color:var(--warn)">⚠ projeto sem responsável</span>')}</span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="font-size:11px" onclick="event.stopPropagation()">Notion ↗</a>` : ''}<span class="car">▾</span></div><div class="proj-b"><div class="cols-h"><div>Projeto › Sistema › Subsistema${RS('lane')}</div><div>Desejos em análise (sem requisito)${RS('wish')}</div><div>Metas da sprint #${D.sprint}</div></div><div class="groups"></div></div>`;
-    const groups = wrap.querySelector('.groups');
-    const bySys = {};
-    lanes.forEach((n) => { const k = n.pai || n.id; (bySys[k] = bySys[k] || []).push(n); });
-    Object.keys(bySys).forEach((sid) => {
-      const sys = I.byId[sid]; const sclosed = state.closed.has(sid);
-      const g = document.createElement('div');
-      g.className = `sys${sclosed ? ' closed' : ''}`;
-      const label = sys.tipo === 'Projeto' && !sys.pai ? (sid === OUTROS ? 'Itens fora dos projetos dos objetivos — metas a reapontar' : 'Direto no projeto') : I.pathOf(sid).slice(1).join(' › ');
-      g.innerHTML = `<div class="sys-h" data-toggle="${sid}"><span class="car">▾</span><span>${esc(label)}</span><span class="depth">· ${bySys[sid].length} lane(s)</span></div>${bySys[sid].map(laneHTML).join('')}`;
-      groups.appendChild(g);
-    });
+    wrap.innerHTML = `<div class="proj-h" data-toggle="${pid}"><h2>${p.codigo ? `<span class="tcod">${esc(p.codigo)}</span>` : ''}${esc(p.nome)}</h2><span class="cnt">${ids.length} lanes · ${nMetas} metas na #${D.sprint}${pid === OUTROS ? ' · metas a reapontar' : (p.resp ? ` · 👤 ${esc(p.resp)}` : ' · <span style="color:var(--warn)">⚠ projeto sem responsável</span>')}</span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="font-size:11px" onclick="event.stopPropagation()">Notion ↗</a>` : ''}<span class="car">▾</span></div><div class="proj-b"><div class="cols-h"><div>Projeto › Sistema › Subsistema${RS('lane')}</div><div>Desejos em análise (sem requisito)${RS('wish')}</div><div>Metas da sprint #${D.sprint}</div></div><div class="groups">${linhas.join('')}</div></div>`;
     el.appendChild(wrap);
   });
   // metas sem subsistema → bloco recolhível no fim
   const orphan = D.metas.filter((m) => m.sprints.includes(D.sprint) && !m.fora && m.subs.length === 0 && showMeta(m));
   if (orphan.length) {
-    el.insertAdjacentHTML('beforeend', `<div class="proj ${state.closed.has('orphan') ? 'closed' : ''}"><div class="proj-h" data-toggle="orphan"><h2>⚠ Metas sem subsistema</h2><span class="cnt">${orphan.length} na sprint #${D.sprint} · regra do modelo: toda meta liga a ≥ 1 subsistema e a ≥ 1 objetivo · várias são de outras diretorias (use o filtro Equipe)</span><span class="car">▾</span></div><div class="proj-b"><div class="lane" data-lane=""><div class="lane-h"><div class="nm">Sem subsistema</div><div class="info"><span class="resp none">precisa de reapontamento</span></div></div><div class="cards"><span class="empty">—</span></div><div class="cards drop">${orphan.map((m) => cardHTML(m, '')).join('')}${canWrite() ? '<button type="button" class="add" data-add="" title="Nova meta sem subsistema">+</button>' : ''}</div></div></div></div>`);
+    el.insertAdjacentHTML('beforeend', `<div class="proj ${state.closed.has('orphan') ? 'closed' : ''}"><div class="proj-h" data-toggle="orphan"><h2>⚠ Metas sem subsistema</h2><span class="cnt">${orphan.length} na sprint #${D.sprint} · regra do modelo: toda meta liga a ≥ 1 subsistema e a ≥ 1 objetivo · várias são de outras diretorias (use o filtro Equipe)</span><span class="car">▾</span></div><div class="proj-b"><div class="lane" data-lane="" style="--tc:var(--warn)"><div class="lane-h"><div class="nm">Sem subsistema</div><div class="info"><span class="resp none">precisa de reapontamento</span></div></div><div class="cards"><span class="empty">—</span></div><div class="cards drop">${orphan.map((m) => cardHTML(m, '')).join('')}${canWrite() ? '<button type="button" class="add" data-add="" title="Nova meta sem subsistema">+</button>' : ''}</div></div></div></div>`);
   }
   bindLanes(el);
   requestAnimationFrame(drawArrows);
@@ -323,8 +315,10 @@ function renderLegend() {
   $('#legend').innerHTML = pd.map(([k, a]) => `<span class="sw"><i style="background:var(--${k})"></i>${esc(a.nome)}</span>`).join('')
     + (ext ? `<span class="sw"><i style="background:var(--${ext[0]})"></i>outras diretorias</span>` : '')
     + '<span class="sw">★ ligada ao objetivo ativo</span>'
+    + '<button type="button" class="btn small" id="org-setas" title="Volta à ordem automática dos cards em todas as lanes (a que cruza menos setas); a ordem arrastada à mão fica no navegador">⇄ Organizar setas</button>'
     + (canWrite() ? '<span class="sw">⠿ arraste o card para reordenar ou mudar de subsistema · arraste da bolinha até outra meta para ligar dependência (bloqueadora → bloqueada)</span>' : '')
-    + '<span class="sw"><i style="background:var(--crit);height:2px"></i>bloqueio fora da sprint / não iniciado</span><span class="k">cor do card = equipe (Área da meta)</span>';
+    + '<span class="sw"><i style="background:var(--crit);height:2px"></i>bloqueio fora da sprint / não iniciado</span><span class="sw"><i style="border-top:2px dashed var(--ink-2);height:0;border-radius:0"></i>seta para grupo recolhido (×N; clique expande)</span><span class="k">cor do card = equipe · cor da lane = sistema</span>';
+  $('#org-setas').onclick = () => { order.clear(); renderLanes(); toast('Cards reorganizados para as setas cruzarem menos'); };
 }
 
 // ---------- alertas ----------

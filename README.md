@@ -60,6 +60,23 @@ Outros recursos:
     - status final do trimestre revisado.
   - **Depois de gravar:** o pareamento é refeito pelo campo `Origem`. Refazer o mesmo rascunho não duplica páginas.
 - **Ordem dos OKRs:** objetivos, KRs e KPIs seguem a coluna `Ordem` do Notion, com os vazios no fim. Vale para o Board e para a Trimestral. Os KPIs são numerados dentro de cada KR.
+- **Tática (board):**
+  - **Gráfico de KR:** um gráfico compacto por KR, com todos os KPIs em "% do alvo".
+    - O alvo de todos fica na mesma linha (100%), e para cima é melhor (≤ usa alvo/valor).
+    - KPI sem alvo fica em escala própria, tracejado.
+    - A legenda é o placar: clicar liga ou desliga o KPI, e passar o mouse destaca a linha. O tooltip mostra o valor real de cada KPI na sprint.
+    - Sprint sem medição depois de uma medição repete o último valor com bolinha aberta. É só visual: o status continua pela última medição real.
+  - **Cores:** cada KR tem uma cor, pela ordem no objetivo, e os KPIs dele usam tons dessa cor com formas de marcador diferentes. A Trimestral usa as mesmas cores.
+  - **Árvore:** projeto › sistema › … › subsistema, em qualquer profundidade, ordenada pela coluna `ID` dos Projetos.
+    - Projeto e sistemas com filhos têm lane própria, para metas de integração. Por isso saiu o alerta "meta ligada a sistema, não a um subsistema".
+    - Cada sistema com filhos tem um tom, e os subsistemas dele herdam o tom.
+    - O ▾ recolhe a subárvore.
+  - **Setas:**
+    - Os cards se ordenam sozinhos para as setas cruzarem menos. A ordem arrastada à mão vale até "⇄ Organizar setas".
+    - Várias setas no mesmo lado do card se espalham pela borda.
+    - Setas longas correm pelo corredor entre Desejos e Metas, sem atravessar cards.
+    - Meta escondida num grupo recolhido recebe a seta no cabeçalho do grupo (tracejada, ×N). O clique expande o grupo.
+    - Passar o mouse num card destaca as setas dele.
 - **Modo TV** (`?modo=tv`): tela grande. Só o cabeçalho recolhe numa faixa fina; ele abre ao passar o mouse, ou fica aberto com 📌. Quem está na lista de editores continua editando.
 - **Larguras:** a coluna de OKRs (divisor) e as colunas Árvore e Desejos das lanes (alça no título da coluna) se ajustam arrastando. Duplo clique na alça volta ao padrão. Fica no navegador de cada pessoa.
 - **Tema:** claro, escuro ou automático.

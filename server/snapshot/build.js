@@ -87,7 +87,7 @@ export function buildSnapshot(raw, { sprintN } = {}) {
     const resp = first(read(p, 'projetos', 'responsavel'));
     nodes.set(ID(p.id), {
       id: ID(p.id), pai: first(rel(p, 'projetos', 'pai')), tipo: read(p, 'projetos', 'tipo') || '—',
-      nome: titleOf(p), status: read(p, 'projetos', 'status') || '—',
+      nome: titleOf(p), status: read(p, 'projetos', 'status') || '—', codigo: read(p, 'projetos', 'codigo') || null,
       resp: resp ? (resp.nome || users[resp.id] || `pessoa ${resp.id.slice(0, 4)}`) : null,
       areas: keysOf(rel(p, 'projetos', 'area')), url: p.url,
     });

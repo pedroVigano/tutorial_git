@@ -20,7 +20,10 @@ test('status de KPI, KR e objetivo iguais aos do mock', () => {
 
 // Diferenças intencionais de redação da versão real
 const norm = (s) => s.replace('fora dos 4 projetos', 'fora dos projetos').replace('P&D (diretoria)', 'P&D');
-const ignorar = (s) => /^warn\|O2: /.test(s) || s.includes('"Fora dos 4 projetos') || s.includes('(exemplo)');
+// Divergência proposital (revisão de 05/10/2026): meta ligada a projeto ou sistema é meta de integração,
+// com lane própria — o alerta "não a um subsistema" do mock saiu.
+const integracao = (s) => /^info\|Meta ".*" ligada a .*, não a um subsistema$/.test(s);
+const ignorar = (s) => /^warn\|O2: /.test(s) || s.includes('"Fora dos 4 projetos') || s.includes('(exemplo)') || integracao(s);
 
 test('alertas por regra iguais aos do mock (sobre o D do mock)', () => {
   const m = mockRules();

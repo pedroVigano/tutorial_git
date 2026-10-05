@@ -6,9 +6,10 @@ import * as api from './api.js';
 import { S, buildIndex, canWrite } from './store.js';
 import { state } from './state.js';
 import { esc, fmt, store, quarterShift, toast, $, $$ } from './util.js';
-import { kpiStatus, krStatus, objStatus, stColor } from './rules.js';
+import { kpiStatus, krStatus, objStatus } from './rules.js';
 import { scoreHTML } from './board.js';
 import { requestWrite } from './plan-modal.js';
+import { krCor, kpiCor, pontos } from './kchart.js';
 
 export const STATUS_FINAL = ['Atingido', 'Atingido Parcialmente', 'Não atingido', 'Abortado'];
 const UNIDADES = ['adimensional', '%', 'kg', 'm', 'cm', 'm²', 'm/s', 'ha', 'horas', 'min', 'ms', 'Hz', 'A', 'A (48 V)', 'A·h', 'kWh', 'rad/s', 'º', '± °', 'R$', '% (nominal 220 V)'];
@@ -232,7 +233,7 @@ export function niceStep(range) {
 }
 export const snapTo = (v, step) => Number((Math.round(v / step) * step).toFixed(Math.max(0, -Math.floor(Math.log10(step)))));
 
-function chart(row, M) {
+function chart(row, M, cor = 'var(--accent)') {
   const sc = scaleFor(row, M); const k = row.q3; const q4 = row.q4 && !row.q4.abortado ? row.q4 : null;
   const xs3 = M.eixo.rev; const xs4 = M.eixo.plan;
   const x3 = (i) => (xs3.length > 1 ? 24 + (i * (MID - GAP - 48)) / (xs3.length - 1) : (MID - GAP) / 2);
@@ -241,13 +242,20 @@ function chart(row, M) {
   s += `<line class="grid" x1="8" x2="${W - 8}" y1="${H - PB}" y2="${H - PB}"/><line class="sep" x1="${MID}" x2="${MID}" y1="4" y2="${H - 4}"/>`;
   if (k) {
     if (k.alvo != null) { const ty = yOf(sc, k.alvo); s += `<line class="tgt" x1="10" x2="${MID - GAP}" y1="${ty}" y2="${ty}"/><text class="tl" x="${MID - GAP}" y="${ty - 4}" text-anchor="end">alvo ${esc(k.dir || '')} ${fmt(k.alvo)}</text>`; }
-    const pts = xs3.map((sp, i) => (k.serie[String(sp.n)] != null ? [x3(i), yOf(sc, k.serie[String(sp.n)])] : null)).filter(Boolean);
-    if (pts.length > 1) s += `<polyline class="ln" points="${pts.map((p) => p.join(',')).join(' ')}"/>`;
-    const col = stColor(kpiStatus(k).cls);
-    xs3.forEach((sp, i) => {
-      const v = k.serie[String(sp.n)];
-      s += v != null ? `<circle class="pt" cx="${x3(i)}" cy="${yOf(sc, v)}" r="4.5" fill="${col}"><title>#${sp.n}: ${fmt(v)}</title></circle>` : `<circle class="miss" cx="${x3(i)}" cy="${H - PB}" r="3"/>`;
+    // sprint sem medição depois da última: repete o último valor com bolinha aberta (só visual)
+    const ate = Math.max(...xs3.filter((sp) => !sp.proj && sp.n <= S.D.sprint).map((sp) => sp.n), -Infinity);
+    const pts = pontos(k, xs3.map((sp) => sp.n), ate);
+    for (let q = 1; q < pts.length; q += 1) {
+      const a = pts[q - 1]; const b = pts[q];
+      s += `<line class="ln${!a.rep && !b.rep && b.i === a.i + 1 ? '' : ' rep'}" style="stroke:${cor}" x1="${x3(a.i)}" y1="${yOf(sc, a.v)}" x2="${x3(b.i)}" y2="${yOf(sc, b.v)}"/>`;
+    }
+    const com = new Set(pts.map((p) => p.i));
+    pts.forEach((p) => {
+      s += p.rep
+        ? `<circle class="pt rep" cx="${x3(p.i)}" cy="${yOf(sc, p.v)}" r="4.5" style="fill:var(--surface-2);stroke:${cor}"><title>#${p.sp}: sem medição — repete ${fmt(p.v)} da #${p.de}</title></circle>`
+        : `<circle class="pt" cx="${x3(p.i)}" cy="${yOf(sc, p.v)}" r="4.5" fill="${cor}"><title>#${p.sp}: ${fmt(p.v)}</title></circle>`;
     });
+    xs3.forEach((sp, i) => { if (!com.has(i)) s += `<circle class="miss" cx="${x3(i)}" cy="${H - PB}" r="3"/>`; });
   }
   xs3.forEach((sp, i) => { s += `<text class="sp ${sp.proj ? 'proj' : ''}" x="${x3(i)}" y="${H - 6}" text-anchor="middle">#${sp.n}${sp.proj ? '*' : ''}</text>`; });
   xs4.forEach((sp, i) => {
@@ -295,7 +303,7 @@ function q4Cell(row, grau) {
   return `<div class="tq-cell q4 ${n.kind}">${head}<textarea class="tq-txt" rows="2" data-campo="titulo" data-slot="${s}" placeholder="Descrição ${grau === 'KPI' ? 'do KPI' : grau === 'Objetivo' ? 'do objetivo' : 'do KR'}…">${esc(n.v.titulo)}</textarea><div class="tq-pills">${tag}</div>${kpiCtl}<div class="tq-ctl">${add}${del}</div></div>`;
 }
 
-const kpiRow = (M, r) => `<div class="tq-row kpi"><div class="tq-pair">${q3Cell(M, r.q3, 'KPI')}${q4Cell(r, 'KPI')}</div>${chart(r, M)}</div>`;
+const kpiRow = (M, r, cor) => `<div class="tq-row kpi"><div class="tq-pair">${q3Cell(M, r.q3, 'KPI')}${q4Cell(r, 'KPI')}</div>${chart(r, M, cor)}</div>`;
 // faixa fixa do KR: fica sob o cabeçalho do objetivo enquanto se rola pelos KPIs dele
 function krFaixa(r) {
   const x = r.q3 || r.q4; const titulo = r.q3 ? r.q3.titulo : (r.q4?.v.titulo || 'KR novo');
@@ -303,10 +311,11 @@ function krFaixa(r) {
   const lado = !r.q4 ? 'sem cópia' : r.q4.abortado ? 'abortado' : r.q4.kind === 'exist' ? 'no Notion' : 'a criar';
   return x ? `<div class="tq-krh">${lbl(label, 'Resultado-Chave')}<span class="t">${esc(titulo)}</span><span class="hint">${r.kpis.length} KPIs · ${esc(triLabel(pg.plan))}: ${lado}</span></div>` : '';
 }
-const krRow = (M, r) => `<div class="tq-row kr">${krFaixa(r)}<div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k) => kpiRow(M, k)).join('')}</div>`;
+// cor do KR = posição dele no objetivo (a mesma da aba Tática); KPIs em tons dessa cor
+const krRow = (M, r, i) => `<div class="tq-row kr" style="--kr:${krCor(i)}">${krFaixa(r)}<div class="tq-pair">${q3Cell(M, r.q3, 'Resultado-Chave')}${q4Cell(r, 'Resultado-Chave')}</div>${r.kpis.map((k, j) => kpiRow(M, k, kpiCor(krCor(i), j))).join('')}</div>`;
 function grupo(M, g) {
   const titulo = g.q3 ? `${g.q3.label} · ${g.q3.titulo}` : `${triLabel(pg.plan)} · ${g.q4?.v.titulo || 'objetivo novo'}`;
-  return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${lbl(g.q3?.label || g.q4?.label || 'novo', 'Objetivo')} ${esc((g.q3 ? g.q3.titulo : titulo).slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r) => krRow(M, r)).join('')}</details>`;
+  return `<details class="tq-grp" data-id="${esc(g.slot)}" ${pg.closed.has(g.slot) ? '' : 'open'}><summary><span>${lbl(g.q3?.label || g.q4?.label || 'novo', 'Objetivo')} ${esc((g.q3 ? g.q3.titulo : titulo).slice(0, 160))}</span><span class="hint">${g.krs.length} KRs · ${g.krs.reduce((a, r) => a + r.kpis.length, 0)} KPIs</span></summary><div class="tq-row obj"><div class="tq-pair">${q3Cell(M, g.q3, 'Objetivo')}${q4Cell(g, 'Objetivo')}</div></div>${g.krs.map((r, i) => krRow(M, r, i)).join('')}</details>`;
 }
 
 function seletores() {

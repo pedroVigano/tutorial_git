@@ -73,6 +73,8 @@ export const BASES = {
       responsavel: { name: 'Responsável', type: 'people' },
       status: { name: 'Status', type: 'status' },
       area: { name: '🔼 Área', type: 'relation', target: 'areas' },
+      // código do item (ex.: "2.1.3"), ordena projetos, sistemas e subsistemas no board
+      codigo: { name: 'ID', type: 'rich_text' },
     },
   },
   sprints: {

@@ -61,10 +61,17 @@ export function demoState(D = readMockData()) {
 
   // árvore de projetos (o nó sintético "outros" do mock não existe no Notion)
   const nodeId = (id) => uid(`projetos:${id}`);
+  const codigo = {}; const filhos = {};
+  for (const n of D.tree) {
+    if (n.id === 'outros') continue;
+    const pai = n.pai && n.pai !== 'outros' ? n.pai : '';
+    filhos[pai] = (filhos[pai] || 0) + 1;
+    codigo[n.id] = `${pai && codigo[pai] ? `${codigo[pai]}.` : ''}${filhos[pai]}`;
+  }
   for (const n of D.tree) {
     if (n.id === 'outros') continue;
     add('projetos', n.id, {
-      titulo: n.nome, tipo: n.tipo, status: n.status === '—' ? 'Não iniciado' : n.status,
+      titulo: n.nome, tipo: n.tipo, status: n.status === '—' ? 'Não iniciado' : n.status, codigo: codigo[n.id],
       pai: n.pai && n.pai !== 'outros' ? [nodeId(n.pai)] : [],
       // no mock, itens fora dos 4 projetos vinham com área "pd" por padrão; aqui ficam fora de P&D
       responsavel: n.resp ? [person(n.resp)] : [], area: areas(n.pai === 'outros' ? ['est'] : n.areas),

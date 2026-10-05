@@ -93,6 +93,30 @@ try {
   await gravar(page);
   ok('medição de KPI gravada');
 
+  // gráfico de KR: legenda liga/desliga o KPI (fica no navegador) e o tooltip mostra o valor real por sprint
+  const kc = () => page.locator('.kc:has(svg.kchart)').first();
+  await kc().locator('.kl-t').first().click();
+  assert.equal(await kc().locator('.kl.off').count(), 1, 'KPI desligado na legenda');
+  await kc().locator('.kl-t').first().click();
+  assert.equal(await kc().locator('.kl.off').count(), 0, 'KPI religado');
+  const graf = await kc().locator('svg.kchart').boundingBox();
+  await page.mouse.move(graf.x + graf.width * 0.9, graf.y + graf.height / 2);
+  await page.waitForSelector('.kc-tip:not([hidden])');
+  assert.match(await page.innerText('.kc-tip:not([hidden])'), /Sprint #\d+/);
+  ok('gráfico de KR: legenda liga/desliga KPI, tooltip com valores');
+
+  // árvore: lane própria para sistemas; recolher um sistema leva as setas para o cabeçalho dele
+  await page.click('.chip:nth-of-type(1)');
+  assert.ok(await page.locator('.lane.pai:not(.raiz)').count() > 0, 'sistemas com filhos têm lane própria');
+  await page.locator('.lane.pai:not(.raiz) .tcar').first().click();
+  await page.waitForSelector('.lane.fechada');
+  await page.waitForSelector('#arrows path[data-grupo]');
+  await page.locator('#arrows path[data-grupo]').first().dispatchEvent('click');
+  await page.waitForFunction(() => !document.querySelector('.lane.fechada'));
+  await page.click('#org-setas');
+  assert.ok(await page.locator('#arrows path[data-de]').count() >= 1, 'setas redesenhadas depois de organizar');
+  ok('árvore: sistema recolhido recebe a seta (×N) e expande no clique; organizar setas');
+
   // Trimestral: duplicar objetivo → abortar um KR → editar texto → arrastar alvo → novo KR → gravar → reabrir pareado
   await page.click('[data-page="trimestral"]');
   await page.waitForSelector('.tq-grp', { timeout: 15000 });
@@ -187,7 +211,7 @@ try {
   await p3.waitForSelector('.card');
   assert.ok((await p3.locator('header.top').boundingBox()).height < 30, 'cabeçalho recolhido no modo TV');
   assert.ok(await p3.locator('[data-add]').count() > 0, 'modo TV mantém a edição');
-  assert.match(await p3.innerText('#user-chip'), /edição/);
+  assert.match(await p3.textContent('#user-chip'), /edição/);
   await p3.hover('header.top');
   assert.ok((await p3.locator('header.top').boundingBox()).height > 40, 'cabeçalho abre ao passar o mouse');
   // painel Reunião em qualquer aba

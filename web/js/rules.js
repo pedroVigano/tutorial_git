@@ -57,8 +57,8 @@ export function computeAlerts(D, I, { sprint, obj = 'all' }) {
   inS.filter((m) => !m.subs.length).forEach((m) => A.push({ sev: 'crit', t: `Meta "${m.titulo}" sem subsistema`, r: 'toda meta liga a ≥ 1 subsistema' }));
   inS.filter((m) => (m.areas || []).length > 1).forEach((m) => A.push({ sev: 'warn', t: `Meta "${m.titulo}" com ${m.areas.length} equipes (${m.areas.map(I.AREA_NAME).join(', ')})`, r: 'exatamente 1 Área por meta — meta de duas equipes vira duas metas' }));
   inS.filter((m) => m.subs.some((s) => I.rootOf(s) === OUTROS)).forEach((m) => A.push({ sev: 'warn', t: `Meta "${m.titulo}" ligada a item fora dos projetos (${m.subs.filter((s) => I.rootOf(s) === OUTROS).map((s) => I.byId[s].nome.split(' — ')[0]).join(', ')})`, r: 'reapontar para a árvore nova ou confirmar que fica fora do P&D' }));
-  const naoLane = (m, s) => I.byId[s] && !I.isLane(I.byId[s]) && s !== OUTROS && !m.via_ec?.[s];
-  inS.filter((m) => m.subs.some((s) => naoLane(m, s))).forEach((m) => A.push({ sev: 'info', t: `Meta "${m.titulo}" ligada a ${m.subs.filter((s) => naoLane(m, s)).map((s) => `${I.byId[s].tipo} "${I.byId[s].nome}"`).join(', ')}, não a um subsistema`, r: 'metas ligam a subsistemas (folhas da árvore)' }));
+  // (sem o alerta "meta ligada a sistema/projeto, não a um subsistema" do mock: meta de integração ligada a
+  // projeto ou sistema é válida e tem lane própria no board)
   inS.filter((m) => m.via_ec).forEach((m) => Object.entries(m.via_ec).forEach(([s, ecs]) => A.push({ sev: 'info', t: `Meta "${m.titulo}" ligada ao Entregável-Chave ${ecs.map((e) => `"${e.nome}"`).join(', ')} — reapontar para ${I.byId[s] ? `${I.byId[s].tipo} "${I.byId[s].nome}"` : 'o item pai'}`, r: 'Entregável-Chave saiu do modelo: as metas passam para o subsistema pai (antes de arquivar o Entregável-Chave)' })));
   inS.forEach((m) => (m.bloq || []).forEach((b) => {
     const bl = I.metaById[b];
